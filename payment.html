@@ -71,6 +71,14 @@ td.r{text-align:right}
 .auth-box input:focus{border-color:#2d5986}
 .auth-box button{width:100%;height:36px;margin-top:10px;border:0;border-radius:6px;background:#1e3a5f;color:#fff;font-weight:700;cursor:pointer}
 .auth-err{min-height:17px;margin-top:8px;color:#c0392b;font-size:12px}
+.setup{max-width:560px;margin:0 auto;text-align:left;color:#555;line-height:1.5}
+.setup h2{font-size:16px;color:#1e3a5f;margin-bottom:6px}
+.setup p{font-size:12px;margin-bottom:10px}
+.setup input{width:100%;height:34px;border:1px solid #d5d5d5;border-radius:6px;padding:0 10px;font-size:12px;outline:none}
+.setup input:focus{border-color:#2d5986}
+.setup .row{display:flex;gap:6px;margin-top:8px}
+.setup .row button{height:34px;border:0;border-radius:6px;background:#1e3a5f;color:#fff;font-weight:700;padding:0 12px;cursor:pointer;white-space:nowrap}
+.setup .muted{font-size:11px;color:#888}
 </style>
 </head>
 <body class="locked">
@@ -133,9 +141,15 @@ td.r{text-align:right}
 </div>
 </div>
 
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://apis.google.com/js/api.js" async defer></script>
 <script>
 const ACCESS_HASH='3f4217042eafd6a54082f314b268e38e68a8af5a0aeddcee924883ac6ff47b96';
 const ACCESS_KEY='atm_payment_access_ok';
+const GOOGLE_CLIENT_KEY='atm_google_client_id';
+const GOOGLE_DEFAULT_CLIENT_ID='1017459671866-quaanh8in8i3vc90hea02d35udod63sq.apps.googleusercontent.com';
+const GOOGLE_SCOPE='https://www.googleapis.com/auth/calendar.readonly';
+const GOOGLE_DISCOVERY='https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest';
 const CALS=[
   {id:'atmind0361@gmail.com',name:'문래점'},
   {id:'1824a066dc6b3d4d7f89ae11beaf22d7f24c78856a04552a3a03ce3200b7fbd2@group.calendar.google.com',name:'신논현점'}
@@ -143,6 +157,7 @@ const CALS=[
 const TOOL='mcp__7562d3df-f0a0-4481-87e0-f6c4660717b3__list_events';
 let allData=[], ov={};
 let refreshTimer=null;
+let googleReady=null, tokenClient=null;
 const open=new Set();
 try{ov=JSON.parse(localStorage.getItem('atm_ov')||'{}')}catch(e){}
 
@@ -253,7 +268,91 @@ function isRel(ev){
   return/완납|예약금/.test(t)||/\d{7,8}[^\n]*원/.test(d);
 }
 
-async function fetchEvs(calId,year){
+function hasCowork(){return !!window.cowork?.callMcpTool}
+function getGoogleClientId(){return localStorage.getItem(GOOGLE_CLIENT_KEY)||GOOGLE_DEFAULT_CLIENT_ID}
+
+function waitFor(name,check){
+  return new Promise((resolve,reject)=>{
+    const started=Date.now();
+    const timer=setInterval(()=>{
+      if(check()){clearInterval(timer);resolve()}
+      else if(Date.now()-started>10000){clearInterval(timer);reject(new Error(`${name} 로딩 실패`))}
+    },50);
+  });
+}
+
+async function initGoogle(){
+  if(googleReady)return googleReady;
+  const clientId=getGoogleClientId();
+  if(!clientId)throw new Error('Google OAuth 클라이언트 ID가 필요합니다.');
+  googleReady=(async()=>{
+    await waitFor('Google OAuth',()=>window.google?.accounts?.oauth2);
+    await waitFor('Google API',()=>window.gapi?.load);
+    await new Promise(resolve=>gapi.load('client',resolve));
+    await gapi.client.init({discoveryDocs:[GOOGLE_DISCOVERY]});
+    tokenClient=google.accounts.oauth2.initTokenClient({
+      client_id:clientId,
+      scope:GOOGLE_SCOPE,
+      callback:()=>{}
+    });
+  })();
+  return googleReady;
+}
+
+async function ensureGoogleToken(prompt=''){
+  await initGoogle();
+  if(gapi.client.getToken()?.access_token)return;
+  await new Promise((resolve,reject)=>{
+    tokenClient.callback=res=>{
+      if(res.error)reject(new Error(res.error));
+      else resolve();
+    };
+    tokenClient.requestAccessToken({prompt});
+  });
+}
+
+function showGoogleSetup(msg=''){
+  document.getElementById('tb').innerHTML=`<tr><td colspan="9" class="empty">
+    <div class="setup">
+      <h2>Google Calendar 연결</h2>
+      <p>${msg||'Google Cloud에서 만든 OAuth 2.0 웹 클라이언트 ID를 입력하세요.'}</p>
+      <input id="googleClientId" value="${getGoogleClientId().replace(/"/g,'&quot;')}" placeholder="OAuth 2.0 Client ID">
+      <div class="row">
+        <button onclick="saveGoogleClient(event)">저장 후 로그인</button>
+        <button onclick="clearGoogleClient(event)" style="background:#777">초기화</button>
+      </div>
+      <p class="muted">승인된 JavaScript 원본에는 현재 사이트 주소의 origin이 들어가 있어야 합니다.</p>
+    </div>
+  </td></tr>`;
+}
+
+async function saveGoogleClient(e){
+  e.stopPropagation();
+  const v=document.getElementById('googleClientId').value.trim();
+  if(!v){showGoogleSetup('클라이언트 ID를 입력하세요.');return}
+  localStorage.setItem(GOOGLE_CLIENT_KEY,v);
+  googleReady=null;tokenClient=null;
+  await connectGoogle();
+}
+
+function clearGoogleClient(e){
+  e.stopPropagation();
+  localStorage.removeItem(GOOGLE_CLIENT_KEY);
+  googleReady=null;tokenClient=null;
+  if(window.gapi?.client)gapi.client.setToken(null);
+  showGoogleSetup('저장된 클라이언트 ID를 지웠습니다.');
+}
+
+async function connectGoogle(){
+  try{
+    await ensureGoogleToken('consent');
+    await loadAll();
+  }catch(e){
+    showGoogleSetup(`Google 로그인 실패: ${e.message}`);
+  }
+}
+
+async function fetchCoworkEvs(calId,year){
   const all=[];let tok=null;
   do{
     const p={calendarId:calId,startTime:`${year}-01-01T00:00:00`,endTime:`${year}-12-31T23:59:59`,pageSize:250,timeZone:'Asia/Seoul'};
@@ -266,13 +365,36 @@ async function fetchEvs(calId,year){
   return all;
 }
 
+async function fetchGoogleEvs(calId,year){
+  await ensureGoogleToken('');
+  const all=[];let pageToken=null;
+  do{
+    const r=await gapi.client.calendar.events.list({
+      calendarId:calId,
+      timeMin:`${year}-01-01T00:00:00+09:00`,
+      timeMax:`${year}-12-31T23:59:59+09:00`,
+      singleEvents:true,
+      orderBy:'startTime',
+      maxResults:2500,
+      pageToken
+    });
+    all.push(...(r.result.items||[]));
+    pageToken=r.result.nextPageToken||null;
+  }while(pageToken);
+  return all;
+}
+
+async function fetchEvs(calId,year){
+  return hasCowork()?fetchCoworkEvs(calId,year):fetchGoogleEvs(calId,year);
+}
+
 async function loadAll(){
   const btn=document.getElementById('rb');
   btn.disabled=true;btn.textContent='⏳ 로딩 중...';
   document.getElementById('tb').innerHTML='<tr><td colspan="9" class="loader"><div class="spin"></div>캘린더 데이터 불러오는 중...</td></tr>';
   const year=document.getElementById('sy').value;
   try{
-    if(!window.cowork?.callMcpTool)throw new Error('캘린더 연결 환경이 없습니다. 배포 사이트에서는 Google Calendar API/OAuth 또는 서버리스 프록시 연결이 필요합니다.');
+    if(!hasCowork()&&!getGoogleClientId()){showGoogleSetup();return}
     allData=[];
     for(const cal of CALS){
       const evs=await fetchEvs(cal.id,year);
@@ -281,7 +403,8 @@ async function loadAll(){
     allData.sort((a,b)=>a.date.localeCompare(b.date));
     render();
   }catch(e){
-    document.getElementById('tb').innerHTML=`<tr><td colspan="9" style="color:#c00;padding:20px">오류: ${e.message}</td></tr>`;
+    if(!hasCowork())showGoogleSetup(`오류: ${e.message}`);
+    else document.getElementById('tb').innerHTML=`<tr><td colspan="9" style="color:#c00;padding:20px">오류: ${e.message}</td></tr>`;
   }finally{btn.disabled=false;btn.textContent='🔄 새로고침'}
 }
 
