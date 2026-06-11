@@ -1,0 +1,26 @@
+name: Deploy to Cloudflare Pages
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare static site
+        run: |
+          rm -rf dist
+          mkdir dist
+          cp index.html dist/index.html
+          cp payment.html dist/payment.html
+
+      - uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: af27f3bbca2209ff9cb2c77a2e47184a
+          projectName: homepage
+          directory: dist
+          branch: main
