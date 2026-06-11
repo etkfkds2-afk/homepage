@@ -85,7 +85,7 @@ td.r{text-align:right}
 <div id="authScreen" class="auth">
   <form class="auth-box" onsubmit="unlockApp(event)">
     <h1>올댓마인드 입금관리</h1>
-    <p>개인 업무용 화면입니다. 접근 비밀번호를 입력하세요.</p>
+    <p>입장 비밀번호를 입력하세요. Google 클라이언트 ID는 다음 화면에서 입력합니다.</p>
     <input id="accessPass" type="password" autocomplete="current-password" autofocus>
     <button type="submit">입장</button>
     <div id="authErr" class="auth-err"></div>
@@ -144,10 +144,10 @@ td.r{text-align:right}
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://apis.google.com/js/api.js" async defer></script>
 <script>
-const ACCESS_HASH='3f4217042eafd6a54082f314b268e38e68a8af5a0aeddcee924883ac6ff47b96';
+const ACCESS_HASH='9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0';
 const ACCESS_KEY='atm_payment_access_ok';
-const GOOGLE_CLIENT_KEY='atm_google_client_id';
-const GOOGLE_DEFAULT_CLIENT_ID='1017459671866-quaanh8in8i3vc90hea02d35udod63sq.apps.googleusercontent.com';
+const GOOGLE_CLIENT_KEY='atm_google_client_id_v2';
+const GOOGLE_DEFAULT_CLIENT_ID='';
 const GOOGLE_SCOPE='https://www.googleapis.com/auth/calendar.readonly';
 const GOOGLE_DISCOVERY='https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest';
 const CALS=[
@@ -312,16 +312,19 @@ async function ensureGoogleToken(prompt=''){
 }
 
 function showGoogleSetup(msg=''){
+  const origin=location.origin;
   document.getElementById('tb').innerHTML=`<tr><td colspan="9" class="empty">
     <div class="setup">
       <h2>Google Calendar 연결</h2>
-      <p>${msg||'Google Cloud에서 만든 OAuth 2.0 웹 클라이언트 ID를 입력하세요.'}</p>
-      <input id="googleClientId" value="${getGoogleClientId().replace(/"/g,'&quot;')}" placeholder="OAuth 2.0 Client ID">
+      <p>${msg||'방금 새로 만든 OAuth 2.0 웹 클라이언트 ID를 입력하세요.'}</p>
+      <p class="muted">Google Cloud 승인된 JavaScript 원본에는 아래 주소가 정확히 들어가 있어야 합니다.</p>
+      <input value="${origin.replace(/"/g,'&quot;')}" readonly onclick="this.select()">
+      <input id="googleClientId" value="${getGoogleClientId().replace(/"/g,'&quot;')}" placeholder="새 OAuth 2.0 Client ID">
       <div class="row">
         <button onclick="saveGoogleClient(event)">저장 후 로그인</button>
         <button onclick="clearGoogleClient(event)" style="background:#777">초기화</button>
       </div>
-      <p class="muted">승인된 JavaScript 원본에는 현재 사이트 주소의 origin이 들어가 있어야 합니다.</p>
+      <p class="muted">클라이언트 ID는 ...apps.googleusercontent.com 으로 끝납니다. 클라이언트 비밀번호는 넣지 않습니다.</p>
     </div>
   </td></tr>`;
 }
