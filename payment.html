@@ -20,12 +20,13 @@ select:focus{border-color:#2d5986}
 .btn:disabled{opacity:.45;cursor:default}
 .btn-reload{background:#ececec;color:#444}
 .btn-export{background:#217346;color:#fff}
-.cards{display:flex;gap:10px;padding:13px 20px;flex-wrap:wrap}
-.card{background:#fff;border-radius:10px;padding:11px 15px;flex:1;min-width:120px;box-shadow:0 1px 3px rgba(0,0,0,.06);border-top:3px solid #ddd}
-.card.bl{border-top-color:#2d5986}.card.gr{border-top-color:#1a7340}.card.or{border-top-color:#c75000}
-.card .lbl{font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
-.card .val{font-size:18px;font-weight:700;color:#222}
-.card.bl .val{color:#1e3a5f}.card.gr .val{color:#1a7340}.card.or .val{color:#c75000}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:13px 20px}
+@media(max-width:700px){.cards{grid-template-columns:repeat(2,1fr)}}
+.card{background:#fff;border-radius:10px;padding:12px 15px;box-shadow:0 1px 3px rgba(0,0,0,.06);border-top:3px solid #ddd}
+.card.bl{border-top-color:#2d5986}.card.gr{border-top-color:#1a7340}.card.or{border-top-color:#c75000}.card.pu{border-top-color:#6d28d9}.card.rd{border-top-color:#b91c1c}
+.card .lbl{font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px}
+.card .val{font-size:17px;font-weight:700;color:#222}
+.card.bl .val{color:#1e3a5f}.card.gr .val{color:#1a7340}.card.or .val{color:#c75000}.card.pu .val{color:#6d28d9}.card.rd .val{color:#b91c1c}
 .tw{padding:0 20px 24px;overflow-x:auto}
 table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)}
 thead tr{background:#f8f9fc}
@@ -54,6 +55,8 @@ td.r{text-align:right}
 .open .arr{transform:rotate(90deg)}
 .eb{margin-top:9px}
 .eb label{font-size:11px;color:#888;display:block;margin-bottom:3px}
+.eb input{width:100%;height:28px;border:1px solid #c8d3ef;border-radius:6px;padding:0 8px;font-size:12px;font-family:inherit;outline:none}
+.eb input:focus{border-color:#2d5986}
 .eb textarea{width:100%;border:1px solid #c8d3ef;border-radius:6px;padding:5px 8px;font-size:12px;resize:vertical;min-height:40px;font-family:inherit;outline:none}
 .eb textarea:focus{border-color:#2d5986}
 .sv{margin-top:5px;height:25px;padding:0 11px;background:#1e3a5f;color:#fff;border:none;border-radius:5px;font-size:11px;cursor:pointer;font-weight:600}
@@ -123,10 +126,12 @@ td.r{text-align:right}
 </div>
 <div class="cards">
   <div class="card bl"><div class="lbl">전체 건수</div><div class="val" id="ct">-</div></div>
-  <div class="card gr"><div class="lbl">완납 입금 합계</div><div class="val" id="ca">-</div></div>
-  <div class="card or"><div class="lbl">청소보증금 보유</div><div class="val" id="cd">-</div></div>
+  <div class="card gr"><div class="lbl">완납 합계</div><div class="val" id="ca">-</div></div>
+  <div class="card pu"><div class="lbl">잔금 수납</div><div class="val" id="cb">-</div></div>
+  <div class="card or"><div class="lbl">청소보증금</div><div class="val" id="cd">-</div></div>
   <div class="card bl"><div class="lbl">완납</div><div class="val" id="c1">-</div></div>
   <div class="card"><div class="lbl">예약금</div><div class="val" id="c2">-</div></div>
+  <div class="card rd"><div class="lbl">미입금</div><div class="val" id="c4">-</div></div>
   <div class="card"><div class="lbl">취소</div><div class="val" id="c3">-</div></div>
 </div>
 <div class="tw">
@@ -156,6 +161,7 @@ const CALS=[
 ];
 const TOOL='mcp__7562d3df-f0a0-4481-87e0-f6c4660717b3__list_events';
 let allData=[], ov={};
+let dbOv={}, dbWarn='';
 let refreshTimer=null;
 let googleReady=null, tokenClient=null;
 const open=new Set();
@@ -197,6 +203,8 @@ function sh(s){
 }
 function pa(s){return parseInt((s||'').replace(/,/g,''))||0}
 function fa(n){return n?n.toLocaleString('ko-KR')+'원':'-'}
+function moneyInput(n){return n?String(n):''}
+function em(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function gm(l){
   if(/신신페이|카드결제|카드\s*결제|국민카드|삼성카드|현대카드|전화승인/.test(l))return'카드';
   if(/법인계좌|법인/.test(l))return'법인';
@@ -227,9 +235,10 @@ function parseDesc(raw){
       // Standalone deposit line
       const isl=/[（(]보증금[）)]/.test(line)||(/청소보증금/.test(line)&&!di&&amts.length===1);
       const name=line.slice(dm[0].length).match(/^([가-힣A-Za-z()_\s\w]+?)(?:\s+(?:개인|법인|신신|카드|국민|\d))/)?.[1]?.trim()||'';
+      const kind=/예약금/.test(line)?'reservation':(/잔금|완납/.test(line)?'balance':'');
       amts.forEach((m,i)=>{
         const amt=pa(m[1]);if(!amt)return;
-        txns.push({date,name,method,amount:amt,isRef,isDep:i===0&&isl,diAmt:i===0?diAmt:0});
+        txns.push({date,name,method,amount:amt,isRef,isDep:i===0&&isl,diAmt:i===0?diAmt:0,kind});
       });
       if(isl&&amts[0])dep+=pa(amts[0][1]);
       else if(diAmt)dep+=diAmt;
@@ -248,6 +257,27 @@ function parseDesc(raw){
   return{txns,totalIn,dep,methods:methods.length?methods:['기타'],memos};
 }
 
+function firstPayment(txns, kind, fallbackIndex){
+  const paid=txns.filter(t=>!t.isRef&&!t.isDep);
+  return paid.find(t=>t.kind===kind)||paid[fallbackIndex]||{};
+}
+function overlayEvent(base,o){
+  const out={...base};
+  const textKeys=['date','branch','title','status','reservationDate','balanceDate','methods','notes','depText'];
+  textKeys.forEach(k=>{if(o&&Object.prototype.hasOwnProperty.call(o,k))out[k]=o[k]});
+  ['reservationAmount','balanceAmount','dep'].forEach(k=>{
+    if(o&&Object.prototype.hasOwnProperty.call(o,k))out[k]=Number(o[k])||0;
+  });
+  if(o&&(Object.prototype.hasOwnProperty.call(o,'reservationAmount')||
+    Object.prototype.hasOwnProperty.call(o,'balanceAmount')||
+    Object.prototype.hasOwnProperty.call(o,'dep'))){
+    out.totalIn=(out.reservationAmount||0)+(out.balanceAmount||0)+(out.dep||0);
+  }
+  if(typeof out.methods==='string')out.methods=out.methods.split(/[,+/]/).map(s=>s.trim()).filter(Boolean);
+  if(!Array.isArray(out.methods)||!out.methods.length)out.methods=['기타'];
+  return out;
+}
+
 function parseEv(ev,branch){
   const title=ev.summary||'';
   const date=(ev.start?.date||ev.start?.dateTime||'').slice(0,10);
@@ -256,11 +286,15 @@ function parseEv(ev,branch){
   else if(/완납/.test(title))status='완납';
   else if(/예약금/.test(title))status='예약금';
   const pd=parseDesc(ev.description);
-  const o=ov[ev.id]||{};
-  return{id:ev.id,date,branch,title,status:o.status||status,
+  const res=firstPayment(pd.txns,'reservation',0);
+  const bal=firstPayment(pd.txns,'balance',1);
+  const base={id:ev.id,date,branch,title,status,
     totalIn:pd.totalIn,dep:pd.dep,methods:pd.methods,txns:pd.txns,
-    notes:o.notes!==undefined?o.notes:pd.memos.slice(0,3).join(' / '),
+    reservationDate:res.date||'',reservationAmount:res.amount||0,
+    balanceDate:bal.date||'',balanceAmount:bal.amount||0,
+    notes:pd.memos.slice(0,3).join(' / '),
     rawDesc:ev.description||''};
+  return overlayEvent(overlayEvent(base,ov[ev.id]||{}),dbOv[ev.id]?.payload||dbOv[ev.id]||{});
 }
 
 function isRel(ev){
@@ -270,6 +304,19 @@ function isRel(ev){
 
 function hasCowork(){return !!window.cowork?.callMcpTool}
 function getGoogleClientId(){return localStorage.getItem(GOOGLE_CLIENT_KEY)||GOOGLE_DEFAULT_CLIENT_ID}
+
+async function loadOverrides(){
+  try{
+    const r=await fetch('/api/overrides',{headers:{'x-access-hash':ACCESS_HASH}});
+    if(!r.ok)throw new Error(await r.text());
+    const d=await r.json();
+    dbOv={};
+    (d.overrides||[]).forEach(o=>dbOv[o.event_id]=o.payload?o:{payload:o});
+    dbWarn='';
+  }catch(e){
+    dbWarn='DB 연결 전까지 수정값은 이 브라우저에만 임시 저장됩니다.';
+  }
+}
 
 function waitFor(name,check){
   return new Promise((resolve,reject)=>{
@@ -398,6 +445,7 @@ async function loadAll(){
   const year=document.getElementById('sy').value;
   try{
     if(!hasCowork()&&!getGoogleClientId()){showGoogleSetup();return}
+    await loadOverrides();
     allData=[];
     for(const cal of CALS){
       const evs=await fetchEvs(cal.id,year);
@@ -416,22 +464,36 @@ function getFiltered(){
   return allData.filter(e=>(!mo||e.date.slice(5,7)===mo)&&(!br||e.branch===br)&&(!st||e.status===st));
 }
 
+function getNetBalance(ev){
+  if(!ev.balanceAmount)return 0;
+  const paid=ev.txns.filter(t=>!t.isRef&&!t.isDep);
+  const bt=paid.find(t=>t.kind==='balance')||paid[1];
+  if(!bt||!bt.diAmt)return ev.balanceAmount;
+  if(bt.method==='카드'||bt.method==='법인')return ev.balanceAmount;
+  return Math.max(0,ev.balanceAmount-bt.diAmt);
+}
+
 function render(){
   const data=getFiltered();
   const 완납=data.filter(e=>e.status==='완납');
+  const active=data.filter(e=>e.status!=='취소');
   document.getElementById('ct').textContent=data.length+'건';
   document.getElementById('ca').textContent=fa(완납.reduce((s,e)=>s+e.totalIn,0));
+  document.getElementById('cb').textContent=fa(active.reduce((s,e)=>s+getNetBalance(e),0));
   document.getElementById('cd').textContent=fa(data.reduce((s,e)=>s+e.dep,0));
   document.getElementById('c1').textContent=완납.length+'건';
   document.getElementById('c2').textContent=data.filter(e=>e.status==='예약금').length+'건';
   document.getElementById('c3').textContent=data.filter(e=>e.status==='취소').length+'건';
-  if(!data.length){document.getElementById('tb').innerHTML='<tr><td colspan="9" class="empty">해당 데이터 없음</td></tr>';return}
+  document.getElementById('c4').textContent=active.filter(e=>e.totalIn===0).length+'건';
+  if(!data.length){document.getElementById('tb').innerHTML=`${dbWarn?`<tr><td colspan="9" style="color:#c75000;padding:10px 14px">${dbWarn}</td></tr>`:''}<tr><td colspan="9" class="empty">해당 데이터 없음</td></tr>`;return}
   const rows=[];
+  if(dbWarn)rows.push(`<tr><td colspan="9" style="color:#c75000;padding:10px 14px">${dbWarn}</td></tr>`);
   for(const ev of data){
     const isO=open.has(ev.id);
     const bc=ev.branch==='문래점'?'brm':'brs';
     const ms=ev.methods.map(m=>`<span class="bdg m${m}">${m}</span>`).join(' ');
-    const dh=ev.dep>0?`<span class="dep">${fa(ev.dep)}</span>`:'<span class="dash">-</span>';
+    const depDisp=(ev.depText&&ev.depText.trim())?em(ev.depText):(ev.dep>0?fa(ev.dep):'');
+    const dh=depDisp?`<span class="dep">${depDisp}</span>`:'<span class="dash">-</span>';
     const ah=ev.totalIn>0?`<span class="amt">${fa(ev.totalIn)}</span>`:'<span class="dash">-</span>';
     const nh=ev.notes?`<span class="note" title="${ev.notes.replace(/"/g,'&quot;')}">${ev.notes}</span>`:'';
     rows.push(`<tr class="er${isO?' open':''}" onclick="tog('${ev.id}')">
@@ -464,31 +526,81 @@ function buildDet(ev){
       <tbody>${tr}</tbody>
     </table>
     <div class="eb">
-      <label>메모 (직접 수정 가능)</label>
-      <textarea id="n${ev.id}" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">${cur}</textarea>
-      <button class="sv" onclick="saveN('${ev.id}',event)">저장</button>
+      <label>수정값 저장</label>
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:6px;margin-bottom:6px" onclick="event.stopPropagation()">
+        <input id="d${ev.id}" value="${em(ev.date)}" placeholder="대관일">
+        <input id="b${ev.id}" value="${em(ev.branch)}" placeholder="지점">
+        <input id="s${ev.id}" value="${em(ev.status)}" placeholder="상태">
+        <input id="m${ev.id}" value="${em(ev.methods.join('+'))}" placeholder="결제방법">
+        <input id="rd${ev.id}" value="${em(ev.reservationDate)}" placeholder="예약금 입금일">
+        <input id="ra${ev.id}" value="${moneyInput(ev.reservationAmount)}" placeholder="예약금 금액">
+        <input id="bd${ev.id}" value="${em(ev.balanceDate)}" placeholder="잔금 입금일">
+        <input id="ba${ev.id}" value="${moneyInput(ev.balanceAmount)}" placeholder="잔금 금액">
+        <input id="dp${ev.id}" value="${em(ev.depText||moneyInput(ev.dep))}" placeholder="청소보증금 (숫자 또는 메모)">
+        <input id="t${ev.id}" value="${em(ev.title)}" placeholder="행사명" style="grid-column:span 3">
+      </div>
+      <label>메모</label>
+      <textarea id="n${ev.id}" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">${em(cur)}</textarea>
+      <button class="sv" onclick="savePayment('${ev.id}',event)">DB에 저장</button>
+      <button class="sv" onclick="resetPayment('${ev.id}',event)" style="background:#777">수정값 삭제</button>
     </div>
   </div></td></tr>`;
 }
 
 function tog(id){open.has(id)?open.delete(id):open.add(id);render()}
 
-function saveN(id,e){
+async function savePayment(id,e){
   e.stopPropagation();
-  const val=document.getElementById('n'+id).value;
-  if(!ov[id])ov[id]={};ov[id].notes=val;
+  const ev=allData.find(e=>e.id===id);
+  if(!ev)return;
+  const payload={
+    date:document.getElementById('d'+id).value.trim(),
+    branch:document.getElementById('b'+id).value.trim(),
+    title:document.getElementById('t'+id).value.trim(),
+    status:document.getElementById('s'+id).value.trim(),
+    reservationDate:document.getElementById('rd'+id).value.trim(),
+    reservationAmount:pa(document.getElementById('ra'+id).value),
+    balanceDate:document.getElementById('bd'+id).value.trim(),
+    balanceAmount:pa(document.getElementById('ba'+id).value),
+    dep:pa(document.getElementById('dp'+id).value),
+    depText:document.getElementById('dp'+id).value.trim(),
+    methods:document.getElementById('m'+id).value.trim(),
+    notes:document.getElementById('n'+id).value
+  };
+  if(!ov[id])ov[id]={};ov[id]=payload;
   try{localStorage.setItem('atm_ov',JSON.stringify(ov))}catch(e){}
-  const ev=allData.find(e=>e.id===id);if(ev)ev.notes=val;
   const btn=e.target;btn.textContent='✓ 저장됨';btn.classList.add('ok');
-  setTimeout(()=>{btn.textContent='저장';btn.classList.remove('ok')},2000);
+  try{
+    const r=await fetch('/api/overrides',{
+      method:'POST',
+      headers:{'content-type':'application/json','x-access-hash':ACCESS_HASH},
+      body:JSON.stringify({event_id:id,payload})
+    });
+    if(!r.ok)throw new Error(await r.text());
+    dbOv[id]={payload};
+  }catch(err){
+    btn.textContent='브라우저 임시저장';
+    dbWarn='DB 저장 실패: 브라우저에만 임시 저장되었습니다.';
+  }
+  Object.assign(ev,overlayEvent(ev,payload));
+  setTimeout(()=>{btn.textContent='DB에 저장';btn.classList.remove('ok')},2000);
+}
+
+async function resetPayment(id,e){
+  e.stopPropagation();
+  delete ov[id];delete dbOv[id];
+  try{localStorage.setItem('atm_ov',JSON.stringify(ov))}catch(e){}
+  try{await fetch('/api/overrides?event_id='+encodeURIComponent(id),{method:'DELETE',headers:{'x-access-hash':ACCESS_HASH}})}catch(e){}
+  render();
 }
 
 function doExport(){
   const data=getFiltered();
-  const H=['행사일','지점','행사명','상태','입금총액','청소보증금','결제방법','메모'];
+  const H=['대관일','지점','행사명','상태','예약금 입금일','예약금 금액','잔금 입금일','잔금 금액','입금총액','청소보증금','결제방법','메모'];
   const rows=data.map(e=>[
     e.date,e.branch,`"${e.title.replace(/"/g,'""')}"`,e.status,
-    e.totalIn||0,e.dep||0,e.methods.join('+'),`"${(e.notes||'').replace(/"/g,'""')}"`
+    e.reservationDate||'',e.reservationAmount||0,e.balanceDate||'',e.balanceAmount||0,
+    e.totalIn||0,(e.depText&&e.depText.trim())||e.dep||0,e.methods.join('+'),`"${(e.notes||'').replace(/"/g,'""')}"`
   ]);
   const csv='﻿'+[H.join(','),...rows.map(r=>r.join(','))].join('\n');
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
