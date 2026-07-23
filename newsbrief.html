@@ -6,7 +6,7 @@
 .hotmodes{display:flex;gap:7px;align-items:center}.hotmodes .pill{padding:6px 11px;font-size:12px}
 </style></head><body>
 <header class="top"><div><div class="brand">NewsBrief</div><div class="tagline">오늘의 뉴스를 3줄로 정리해, 판단을 가병게.<br>중요한 기사만 저장하고 미래의 나에게 남기세요.</div></div><div class="controls"><div class="modebar"><button class="pill on" data-view="home">홈</button><button class="pill" data-view="latest">최신순</button><button class="pill" data-view="popular">인기순</button><button class="pill" data-view="saved">저장</button><button class="pill baduk" data-view="baduk">바둑</button><button class="pill setting" id="topicToggle" type="button">바둑 숨기기</button><span class="status" id="status">연결 확인 중</span></div><div class="filterbar" id="categories"></div><form class="searchbar" id="search"><input id="query" placeholder="최근 한 달 뉴스 검색" aria-label="뉴스 검색"><button>검색</button></form></div></header>
-<section class="homehero" id="hero"><div class="home-date" id="date"></div><div class="hotcard"><div class="hothead"><div><span class="hotbadge">24H</span><span class="hotmeta" id="updated"></span><div class="hottitle">오늘의 핵심 뉴스</div><div class="hotsub">지금 주목할 기사만 한 페이지에 정리했습니다.</div></div><div class="hotmodes"><button class="pill on" type="button" data-hot="general">일반</button><button class="pill baduk" type="button" data-hot="baduk">바둑</button></div></div><div class="hotpage" id="hot"></div></div></section>
+<section class="homehero" id="hero"><div class="home-date" id="date"></div><div class="hotcard"><div class="hothead"><div><span class="hotbadge">24H</span><span class="hotmeta" id="updated"></span><div class="hottitle">오늘의 핵심 뉴스</div></div><div class="hotmodes"><button class="pill on" type="button" data-hot="general">일반</button><button class="pill baduk" type="button" data-hot="baduk">바둑</button></div></div><div class="hotpage" id="hot"></div></div></section>
 <div class="sectionTitle" id="sectionTitle">지금 주목할 뉴스</div><main class="grid" id="cards"><div class="empty">뉴스를 불러오는 중입니다.</div></main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script>
@@ -44,7 +44,7 @@ function cardHtml(x){
 }
 function render(){
   nav();renderHero();
-  const labels={saved:['저장한 뉴스','나중에 다시 볼 기사입니다.'],popular:['최근 한 달 인기 뉴스','포털 인기 순위와 최신성을 반영합니다.'],baduk:['최근 한 달 바둑 뉴스','설정에서 숨길 수 있는 맞춤 주제입니다.'],home:['이번 주 주목할 뉴스','']};
+  const labels={saved:['저장한 뉴스',''],popular:['최근 한 달 인기 뉴스',''],baduk:['최근 한 달 바둑 뉴스',''],home:['이번 주 주목할 뉴스','']};
   const label=labels[state.mode]||(state.category?[`${state.category} 최신 뉴스`,'최근 한 달 기사입니다.']:['최근 한 달 최신 뉴스','새로 수집된 순서로 보여줍니다.']);
   $('sectionTitle').innerHTML=`${esc(label[0])}${label[1]?`<span class="sectionDesc">${esc(label[1])}</span>`:''}`;
   const visible=state.items;
