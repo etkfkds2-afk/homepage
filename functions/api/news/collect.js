@@ -265,7 +265,7 @@ async function collectArchivedTop(slot) {
 
 async function collect(env, { backfill = false, repair = false, googleDiscoveries = [] } = {}) {
   const diagnostics = { mode: backfill ? 'backfill' : 'scheduled', retry_attempted: 0, retry_repaired: 0, samples: [] };
-  let aiRetryRemaining = repair ? 12 : (backfill ? 6 : 2);
+  let aiRetryRemaining = repair ? 12 : (backfill ? 6 : 4);
   let aiNewRemaining = repair ? 0 : (backfill ? 6 : 3);
   const summarize = async (payload, detail, purpose = 'new') => {
     const useAi = payload.category === '바둑'
@@ -310,7 +310,7 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
     LEFT JOIN news_summary_attempts f ON f.url_key=a.url_key
     WHERE a.summary_quality='none' AND length(a.body_text)>=300 AND COALESCE(f.attempts,0)<?
     ORDER BY CASE WHEN a.category='바둑' THEN 0 ELSE 1 END, length(a.body_text) DESC, a.fetched_at DESC LIMIT ?`)
-    .bind(repair ? 12 : 6, aiRetryRemaining).all();
+    .bind(24, aiRetryRemaining).all();
   for (const row of retryRows.results || []) {
     if (isRejectedTitle(row.title)) continue;
     const detail = {};
@@ -323,7 +323,7 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
         env.DB.prepare('DELETE FROM news_summary_attempts WHERE url_key=?').bind(row.url_key)
       ]);
       diagnostics.retry_repaired += 1;
-    } else if (detail.ai_attempted) {
+    } else if (detail.ai_attempted && !detail.ai_error) {
       await env.DB.prepare(`INSERT INTO news_summary_attempts(url_key,attempts,last_attempt) VALUES(?,1,CURRENT_TIMESTAMP)
         ON CONFLICT(url_key) DO UPDATE SET attempts=attempts+1,last_attempt=CURRENT_TIMESTAMP`).bind(row.url_key).run();
     }

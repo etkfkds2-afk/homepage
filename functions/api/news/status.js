@@ -20,8 +20,8 @@ export async function onRequestGet({ env }) {
       ,env.DB.prepare(`SELECT
         COUNT(*) AS stored,
         SUM(CASE WHEN a.summary_quality='full' THEN 1 ELSE 0 END) AS summarized,
-        SUM(CASE WHEN a.summary_quality='none' AND length(a.body_text)>=300 AND COALESCE(f.attempts,0)<12 THEN 1 ELSE 0 END) AS ai_retryable,
-        SUM(CASE WHEN a.summary_quality='none' AND length(a.body_text)>=300 AND COALESCE(f.attempts,0)>=12 THEN 1 ELSE 0 END) AS ai_exhausted,
+        SUM(CASE WHEN a.summary_quality='none' AND length(a.body_text)>=300 AND COALESCE(f.attempts,0)<24 THEN 1 ELSE 0 END) AS ai_retryable,
+        SUM(CASE WHEN a.summary_quality='none' AND length(a.body_text)>=300 AND COALESCE(f.attempts,0)>=24 THEN 1 ELSE 0 END) AS ai_exhausted,
         SUM(CASE WHEN a.summary_quality='none' AND length(a.body_text)>=180 AND length(a.body_text)<300 THEN 1 ELSE 0 END) AS body_short,
         SUM(CASE WHEN a.summary_quality='none' AND length(a.body_text)<180 THEN 1 ELSE 0 END) AS body_missing,
         SUM(CASE WHEN a.title LIKE '%칼럼%' OR a.title LIKE '%사설%' OR a.title LIKE '%기고%'
