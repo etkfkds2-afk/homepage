@@ -24,6 +24,8 @@ export function normalizeText(value) {
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;|&#160;/gi, ' ')
     .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
     .replace(/&quot;|&#34;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'")
     .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
@@ -166,5 +168,5 @@ export function validateThreeLineSummary(summary, title = '') {
 export function isRejectedTitle(title = '') {
   if (/�/.test(title) || (String(title).match(/\?/g) || []).length >= 5) return true;
   if (/(?:시세\s*조회로|현명한\s*투자하세요|신청\s*및\s*.*(?:환급|상세)\s*안내|자동차월드)/i.test(title)) return true;
-  return /(?:퇴근길\s*이슈|뉴스\s*브리핑|뉴스\s*잇\s*\(|뉴스\s*바이트|모닝픽|주요\s*뉴스\s*]|주요뉴스\s*…|미리보는\s*.*신문|증시\s*포커스|증시포커스|뉴스\s*새벽배송|\[\s*뉴스\s*(?:\.{2,}|…)|스포츠용어\s*산책)/i.test(title);
+  return /(?:\[?[^\]\n]{0,20}(?:칼럼|사설|기고|시론|논단|오피니언)\]?|퇴근길\s*이슈|뉴스\s*브리핑|뉴스\s*잇\s*\(|뉴스\s*바이트|모닝픽|주요\s*뉴스\s*]|주요뉴스\s*…|미리보는\s*.*신문|증시\s*포커스|증시포커스|뉴스\s*새벽배송|\[\s*뉴스\s*(?:\.{2,}|…)|스포츠용어\s*산책)/i.test(title);
 }

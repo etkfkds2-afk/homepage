@@ -84,6 +84,13 @@ test('기사 글자크기 UI와 광고성 제목을 거부한다', () => {
 
 test('HTML 숫자 엔티티를 실제 줄바꿈으로 정규화한다', () => {
   assert.equal(normalizeText('첫 문장.&#10;둘째 문장.'), '첫 문장.\n둘째 문장.');
+  assert.equal(normalizeText('&amp;lt;설국&amp;gt;'), '<설국>');
+});
+
+test('칼럼·사설·기고는 일반 뉴스 요약에서 제외한다', () => {
+  const summary = '1) 신진서 9단은 카타고와 세 차례 공식 대국을 치렀다.\n2) 대국은 접바둑과 시간 항드를 적용해 진행됐다.\n3) 주최 측은 향후 추가 대국을 검토한다고 밝혔다.';
+  assert.equal(validateThreeLineSummary(summary, '[윤성민 칼럼] 신진서 對 카타고 기신전에 부쳐'), false);
+  assert.equal(validateThreeLineSummary(summary, '[사설] 바둑 인공지능 대국의 과제'), false);
 });
 
 test('행사 의미를 덧붙이는 홍보성 문장을 요약으로 인정하지 않는다', () => {
