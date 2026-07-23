@@ -9,6 +9,8 @@ const SEARCHES = [
   ['IT/과학', 'IT 과학 주요 뉴스'], ['바둑', '바둑 대회 프로기사']
 ];
 
+const GENERIC_TITLES = new Set(['이 시각 주요 뉴스', '오늘의 주요 뉴스', '주요 뉴스', '뉴스 브리핑']);
+
 function stripHtml(value) {
   return normalizeText(String(value || '').replace(/<[^>]*>/g, ' '));
 }
@@ -19,6 +21,11 @@ function cleanTitle(value) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 300);
+}
+
+function pressFromTitle(value) {
+  const text = stripHtml(value);
+  return (text.match(/\s[-|–—]\s([^\-|–—]{1,30})$/u)?.[1] || '').trim().slice(0, 80);
 }
 
 function parseDate(value) {
@@ -65,6 +72,9 @@ async function naverSearch(env, query) {
 }
 
 async function collect(env) {
+  await env.DB.prepare(`DELETE FROM news_articles
+    WHERE title IN ('이 시각 주요 뉴스','오늘의 주요 뉴스','주요 뉴스','뉴스 브리핑')
+       OR summary LIKE '%완독 약%분 소요%'`).run();
   const candidates = [];
   for (const [category, query] of SEARCHES) {
     const items = await naverSearch(env, query);
@@ -75,7 +85,8 @@ async function collect(env) {
   for (const { category, item } of candidates) {
     const url = canonicalUrl(item.originallink || item.link);
     const title = cleanTitle(item.title);
-    if (!url || !title || !/^https?:\/\//.test(url)) continue;
+    if (!url || !title || GENERIC_TITLES.has(title) || !/^https?:\/\//.test(url)) continue;
+    const press = pressFromTitle(item.title);
     const urlKey = await sha256(url);
     const exists = await env.DB.prepare('SELECT id FROM news_articles WHERE url_key=?').bind(urlKey).first();
     if (exists) continue;
@@ -97,7 +108,7 @@ async function collect(env) {
         summary=CASE WHEN length(excluded.summary)>length(news_articles.summary) THEN excluded.summary ELSE news_articles.summary END,
         summary_quality=excluded.summary_quality
     `).bind(
-      url, urlKey, title, 'NAVER', '', category, parseDate(item.pubDate), rawSummary,
+      url, urlKey, title, 'NAVER', press, category, parseDate(item.pubDate), rawSummary,
       body, summary, lineCount >= 3 ? 'full' : 'short', ''
     ).run();
     inserted += 1;

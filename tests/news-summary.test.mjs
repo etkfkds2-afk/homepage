@@ -36,3 +36,11 @@ test('연락처·저작권·해시태그 라인을 잡음으로 판정한다', (
   assert.equal(isJunkLine('저작권자 © 뉴스 무단전재 및 재배포 금지'), true);
   assert.equal(isJunkLine('#정치 #경제 #오늘의뉴스'), true);
 });
+
+test('편집국 메타와 잘린 문장을 요약에서 제외한다', () => {
+  const summary = buildSummary({
+    title: '아시아 주요 현안',
+    rawSummary: '편집국 July 23, 2026 완독 약 5 분 소요\n물류 센터 피격으로 직원들이 부상당했고...\n현지 정부는 피해 현황을 조사하고 있다고 밝혔다.'
+  });
+  assert.equal(summary, '1) 현지 정부는 피해 현황을 조사하고 있다고 밝혔다.');
+});

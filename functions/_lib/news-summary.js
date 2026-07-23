@@ -15,6 +15,8 @@ const JUNK_PATTERNS = [
   /^(?:입력|수정)\s*\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}/,
   /^\s*(?:사진|자료사진|동영상|광고|ADVERTISEMENT)\s*$/i,
   /(?:구독|좋아요|공감|댓글)\s*(?:버튼|하기|눌러)/i
+  ,/(?:^|\s)편집국\s+[A-Z][a-z]+\s+\d{1,2},\s*\d{4}.*완독/i
+  ,/완독\s*약?\s*\d+\s*분\s*소요/i
 ];
 
 export function normalizeText(value) {
@@ -86,6 +88,7 @@ function validCandidate(value, title) {
   if (isJunkLine(value)) return false;
   const line = cleanCandidate(value);
   if (line.length < 18 || line.length > 220) return false;
+  if (/(?:\.{3,}|…)$/.test(line)) return false;
   if (title && isNearDuplicate(line, title)) return false;
   if (/^(?:기자|특파원|앵커)\s*[=:]/.test(line)) return false;
   return true;
