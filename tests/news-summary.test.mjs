@@ -55,3 +55,9 @@ test('해설성 문장과 깨진 따옴표를 거부한다', () => {
   assert.equal(validateThreeLineSummary("1) 이번 행사의 진짜 관전 포인트다.\n2) 바둑판에 제3의 언어가 더해진 셈이다.\n3) 주최사는 프로그램을 제공했다고 밝혔다.", '행사'), false);
   assert.equal(validateThreeLineSummary("1) 협회는 아시아 각국의 현안을 정리했다고 밝혔다.\n2) 한국'엄마와 아빠 대신 보호자를 권고했다.\n3) 교육청은 논란 이후 권고안을 철회했다고 밝혔다.", '교육청 권고'), false);
 });
+
+test('뉴스 프로그램 도입부와 묶음형 기사를 거부한다', () => {
+  const intro = '1) 한주간 세계 주요 뉴스를 전해드립니다.\n2) 태평양에서 엘니뇨가 발생한 것으로 확인됐습니다.\n3) 기상 이변이 세계 여러 지역에 영향을 미치고 있습니다.';
+  assert.equal(validateThreeLineSummary(intro, '이준영의 WE'), false);
+  assert.equal(validateThreeLineSummary('1) 오늘의 이슈를 모아 제공합니다.\n2) 여러 소식이 온라인에서 관심을 모았습니다.\n3) 관련 인물들이 입장을 공개했다고 밝혔습니다.', '[퇴근길이슈] 오늘의 소식'), false);
+});
