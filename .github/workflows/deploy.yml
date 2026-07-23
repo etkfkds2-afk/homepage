@@ -40,6 +40,30 @@ jobs:
             exit 1
           fi
 
+      - name: Configure NewsBrief runtime secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          NEWSBRIEF_COLLECT_TOKEN: ${{ secrets.NEWSBRIEF_COLLECT_TOKEN }}
+        run: |
+          jq -n \
+            --arg naver_id "$NAVER_CLIENT_ID" \
+            --arg naver_secret "$NAVER_CLIENT_SECRET" \
+            --arg collect_token "$NEWSBRIEF_COLLECT_TOKEN" \
+            '{deployment_configs:{production:{env_vars:{
+              NAVER_CLIENT_ID:{type:"secret_text",value:$naver_id},
+              NAVER_CLIENT_SECRET:{type:"secret_text",value:$naver_secret},
+              NEWSBRIEF_COLLECT_TOKEN:{type:"secret_text",value:$collect_token}
+            }}}}' > /tmp/pages-settings.json
+          curl --fail-with-body -sS \
+            -X PATCH \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data @/tmp/pages-settings.json \
+            "https://api.cloudflare.com/client/v4/accounts/af27f3bbca2209ff9cb2c77a2e47184a/pages/projects/newsbrief-etkfkds2" \
+            > /tmp/pages-settings-response.json
+
       - uses: cloudflare/pages-action@v1
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
