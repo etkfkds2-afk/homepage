@@ -1,0 +1,38 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { buildSummary, isJunkLine, sanitizeStoredSummary } from '../functions/_lib/news-summary.js';
+
+test('포털 자동요약 안내와 UI 문장을 제거한다', () => {
+  const summary = buildSummary({
+    title: '정부가 새 정책을 발표했다',
+    rawSummary: '기사 제목과 주요 문장을 기반으로 자동 요약한 결과입니다.\n음성으로 듣기 번역 베타 타임톡',
+    body: '정부는 23일 새 정책의 세부 내용을 공개했다. 지원 대상은 다음 달부터 확대된다. 관계 부처는 현장 의견을 추가로 수렴할 계획이다.'
+  });
+  assert.equal(summary.split('\n').length, 3);
+  assert.doesNotMatch(summary, /자동\s*요약|음성으로 듣기|타임톡/);
+});
+
+test('제목 복붙과 중복 문장을 요약에 넣지 않는다', () => {
+  const summary = buildSummary({
+    title: '한국 대표팀이 결승에 진출했다',
+    rawSummary: '한국 대표팀이 결승에 진출했다. 한국 대표팀이 결승에 진출했다.',
+    body: '대표팀은 준결승에서 두 점 차 승리를 거뒀다. 결승전은 오는 일요일 서울에서 열린다.'
+  });
+  assert.equal(summary.split('\n').length, 2);
+  assert.doesNotMatch(summary, /한국 대표팀이 결승에 진출했다/);
+});
+
+test('짧은 정상 기사는 억지로 세 줄을 만들지 않는다', () => {
+  const result = sanitizeStoredSummary({
+    title: '지역 축제가 주말에 열린다',
+    body: '지역 축제는 토요일 오전 시민공원에서 개막한다.'
+  });
+  assert.equal(result.lineCount, 1);
+  assert.equal(result.quality, 'short');
+});
+
+test('연락처·저작권·해시태그 라인을 잡음으로 판정한다', () => {
+  assert.equal(isJunkLine('▶ 제보 전화 02-1234-5678'), true);
+  assert.equal(isJunkLine('저작권자 © 뉴스 무단전재 및 재배포 금지'), true);
+  assert.equal(isJunkLine('#정치 #경제 #오늘의뉴스'), true);
+});

@@ -3,9 +3,13 @@ name: Deploy to Cloudflare Pages
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '7,37 * * * *'
 
 jobs:
   deploy:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,7 +19,7 @@ jobs:
           rm -rf dist
           mkdir dist
           cp index.html dist/index.html
-          cp payment.html dist/payment.html
+          cp newsbrief.html dist/newsbrief.html
 
       - uses: cloudflare/pages-action@v1
         with:
@@ -24,3 +28,16 @@ jobs:
           projectName: homepage
           directory: dist
           branch: main
+
+  collect-news:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger NewsBrief collection
+        env:
+          NEWSBRIEF_COLLECT_TOKEN: ${{ secrets.NEWSBRIEF_COLLECT_TOKEN }}
+        run: |
+          curl --fail-with-body --retry 3 --max-time 240 \
+            -X POST \
+            -H "Authorization: Bearer ${NEWSBRIEF_COLLECT_TOKEN}" \
+            https://homepage-8fj.pages.dev/api/news/collect

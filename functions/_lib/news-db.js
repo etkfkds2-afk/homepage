@@ -1,0 +1,91 @@
+export const NEWS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS news_articles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  url TEXT NOT NULL,
+  url_key TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT '',
+  press TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT '기타',
+  published_at TEXT NOT NULL DEFAULT '',
+  fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  raw_summary TEXT NOT NULL DEFAULT '',
+  body_text TEXT NOT NULL DEFAULT '',
+  summary TEXT NOT NULL DEFAULT '',
+  summary_quality TEXT NOT NULL DEFAULT 'none',
+  image_url TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_news_articles_date ON news_articles(published_at DESC, fetched_at DESC);
+CREATE INDEX IF NOT EXISTS idx_news_articles_category ON news_articles(category, published_at DESC);
+CREATE TABLE IF NOT EXISTS news_saved (
+  user_id TEXT NOT NULL,
+  url_key TEXT NOT NULL,
+  saved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY(user_id, url_key)
+);
+CREATE TABLE IF NOT EXISTS news_hidden (
+  user_id TEXT NOT NULL,
+  url_key TEXT NOT NULL,
+  hidden_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY(user_id, url_key)
+);
+CREATE TABLE IF NOT EXISTS news_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  status TEXT NOT NULL,
+  inserted_count INTEGER NOT NULL DEFAULT 0,
+  message TEXT NOT NULL DEFAULT ''
+);`;
+
+export function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff'
+    }
+  });
+}
+
+export async function ensureNewsDb(env) {
+  if (!env.DB) throw new Error('Cloudflare D1 binding DB가 없습니다.');
+  const statements = NEWS_SCHEMA.split(';').map(value => value.trim()).filter(Boolean);
+  await env.DB.batch(statements.map(sql => env.DB.prepare(sql)));
+}
+
+export async function sha256(value) {
+  const bytes = new TextEncoder().encode(String(value || ''));
+  const hash = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export function canonicalUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    url.hash = '';
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^(?:utm_|fbclid|gclid|ref|from|sid$)/i.test(key)) url.searchParams.delete(key);
+    }
+    url.hostname = url.hostname.toLowerCase().replace(/^m\./, '');
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return String(value || '').trim();
+  }
+}
+
+export function userId(request) {
+  return (request.headers.get('x-news-user') || 'default').slice(0, 100);
+}
+
+export function isAuthorized(request, env) {
+  const expected = env.NEWSBRIEF_ACCESS_TOKEN;
+  if (!expected) return true;
+  return request.headers.get('x-news-token') === expected;
+}
+
+export function isCollectorAuthorized(request, env) {
+  const expected = env.NEWSBRIEF_COLLECT_TOKEN;
+  return Boolean(expected) && request.headers.get('authorization') === `Bearer ${expected}`;
+}
