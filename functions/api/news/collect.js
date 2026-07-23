@@ -12,9 +12,14 @@ const SEARCHES = [
 ];
 
 const BADUK_SEARCHES = [
-  '바둑', '바둑 대회', '한국기원', '프로바둑 대회', '바둑리그', '여자바둑리그',
-  '신진서 대국', '최정 바둑', '세계 바둑대회', '아마추어 바둑대회',
-  '어린이 바둑대회', '청소년 바둑대회', '지역 바둑대회', '생활체육 바둑대회'
+  '바둑', 'baduk', '바둑 대회', '바둑 행사', '바둑 축제', '전국 바둑대회',
+  '한국기원 대회', '대한바둑협회 바둑대회', '아마 바둑대회', '아마추어 바둑대회',
+  '어린이 바둑대회', '전국 어린이 바둑대회', '초등 바둑대회', '학생 바둑대회',
+  '청소년 바둑대회', '유소년 바둑대회', '꿈나무 바둑대회', '학교 바둑대회',
+  '지역 바둑대회', '시니어 아마 바둑대회', '생활체육 바둑대회', '바둑 참가자 모집',
+  '바둑교실 대회', '바둑문화 행사', '시도 바둑협회 대회', '전국체전 바둑',
+  '소년체전 바둑', '바둑 신진서', '프로바둑 대회', '바둑리그', '여자바둑리그',
+  '시니어바둑리그', '바둑 기전', '세계 바둑대회', '신진서 대국', '최정 바둑'
 ];
 
 const GENERIC_TITLES = new Set(['이 시각 주요 뉴스', '오늘의 주요 뉴스', '주요 뉴스', '뉴스 브리핑']);
@@ -256,7 +261,7 @@ async function collectArchivedTop(slot) {
   return rows;
 }
 
-async function collect(env, { backfill = false } = {}) {
+async function collect(env, { backfill = false, googleDiscoveries = [] } = {}) {
   const diagnostics = { mode: backfill ? 'backfill' : 'scheduled', retry_attempted: 0, retry_repaired: 0, samples: [] };
   let aiRetryRemaining = 1;
   let aiNewRemaining = 1;
@@ -313,20 +318,48 @@ async function collect(env, { backfill = false } = {}) {
     ? SEARCHES.filter(([category]) => category === '바둑')
     : SEARCHES;
   for (const [category, query] of selectedSearches) {
-    const effectiveQuery = category === '바둑' ? (backfill ? '바둑' : badukQuery) : query;
-    const start = backfill ? backfillStart : (category === '바둑' ? backfillStart : 1);
-    const display = backfill ? 10 : 5;
-    const items = await naverSearch(env, effectiveQuery, start, display);
-    const take = backfill ? (category === '바둑' ? 5 : 2) : (category === '바둑' ? 2 : 1);
-    for (const item of items.slice(0, take)) candidates.push({ category, item, source: 'NAVER' });
-    try {
-      const page = backfill ? (slot % 10) * 5 + 1 : (category === '바둑' ? (slot % 10) + 1 : 1);
-      const kakaoItems = await kakaoSearch(env, effectiveQuery, page, backfill ? 10 : 5);
-      for (const item of kakaoItems.slice(0, take)) candidates.push({ category, item, source: 'KAKAO' });
-    } catch (error) {
-      diagnostics.kakao_error = String(error?.message || error).slice(0, 120);
+    // A broad "바둑" query at ever-higher offsets repeatedly returned the same small
+    // set of usable portal articles. Search several distinct beats per run instead.
+    const effectiveQueries = category === '바둑'
+      ? Array.from({ length: backfill ? 4 : 2 }, (_, index) =>
+          BADUK_SEARCHES[(slot * (backfill ? 4 : 2) + index) % BADUK_SEARCHES.length])
+      : [query];
+    for (const effectiveQuery of effectiveQueries) {
+      const pageBand = backfill ? Math.floor(slot / Math.ceil(BADUK_SEARCHES.length / 4)) % 5 : 0;
+      const start = category === '바둑' ? pageBand * 20 + 1 : (backfill ? backfillStart : 1);
+      const display = category === '바둑' ? 20 : (backfill ? 10 : 5);
+      const items = await naverSearch(env, effectiveQuery, start, display);
+      const take = category === '바둑' ? (backfill ? 5 : 2) : (backfill ? 2 : 1);
+      for (const item of items.slice(0, take)) candidates.push({ category, item, source: 'NAVER' });
+      try {
+        const page = category === '바둑' ? pageBand + 1 : (backfill ? (slot % 10) * 5 + 1 : 1);
+        const kakaoItems = await kakaoSearch(env, effectiveQuery, page, category === '바둑' ? 20 : (backfill ? 10 : 5));
+        for (const item of kakaoItems.slice(0, take)) candidates.push({ category, item, source: 'KAKAO' });
+      } catch (error) {
+        diagnostics.kakao_error = String(error?.message || error).slice(0, 120);
+      }
     }
   }
+  // Google News is discovery-only: resolve each headline through the licensed
+  // Naver API, then fetch and validate the real article like every other item.
+  // Never expose a Google wrapper or its short RSS description as a summary.
+  for (const discovery of googleDiscoveries.slice(0, backfill ? 40 : 16)) {
+    const discoveredTitle = cleanTitle(discovery?.title || '');
+    if (!discoveredTitle || isRejectedTitle(discoveredTitle)) continue;
+    try {
+      const matches = await naverSearch(env, `"${discoveredTitle}"`, 1, 3);
+      const match = matches.find(item => {
+        const candidateTitle = cleanTitle(item.title);
+        const left = candidateTitle.replace(/[^0-9A-Za-z가-힣]/g, '');
+        const right = discoveredTitle.replace(/[^0-9A-Za-z가-힣]/g, '');
+        return left === right || (Math.min(left.length, right.length) >= 18 && (left.includes(right) || right.includes(left)));
+      });
+      if (match) candidates.push({ category: '바둑', item: match, source: 'NAVER' });
+    } catch (error) {
+      diagnostics.google_resolve_error = String(error?.message || error).slice(0, 120);
+    }
+  }
+  diagnostics.google_discovered = googleDiscoveries.length;
   if (backfill) {
     try {
       const archived = await collectArchivedTop(slot);
@@ -442,7 +475,12 @@ export async function onRequestPost({ request, env }) {
     const run = await env.DB.prepare("INSERT INTO news_runs(started_at,status) VALUES(?,'running') RETURNING id").bind(started).first();
     runId = run?.id;
     const backfill = new URL(request.url).searchParams.get('backfill') === '1';
-    const result = await collect(env, { backfill });
+    let payload = {};
+    try {
+      if ((request.headers.get('content-type') || '').includes('application/json')) payload = await request.json();
+    } catch {}
+    const googleDiscoveries = Array.isArray(payload?.googleDiscoveries) ? payload.googleDiscoveries : [];
+    const result = await collect(env, { backfill, googleDiscoveries });
     await env.DB.prepare("UPDATE news_runs SET finished_at=?,status='ok',inserted_count=? WHERE id=?")
       .bind(new Date().toISOString(), result.inserted, runId).run();
     return json({ ok: true, ...result });

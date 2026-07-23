@@ -83,12 +83,20 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Discover Google News and trigger collection
+        env:
+          NEWSBRIEF_COLLECT_TOKEN: ${{ secrets.NEWSBRIEF_COLLECT_TOKEN }}
+          NEWSBRIEF_BACKFILL: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+        run: node scripts/google-news-discovery.mjs
+
       - name: Trigger NewsBrief collection
         env:
           NEWSBRIEF_COLLECT_TOKEN: ${{ secrets.NEWSBRIEF_COLLECT_TOKEN }}
         run: |
-          runs=1
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then runs=10; fi
+          runs=0
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then runs=9; fi
           for i in $(seq 1 "$runs"); do
             endpoint="https://newsbrief-etkfkds2.pages.dev/api/news/collect"
             if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then endpoint="${endpoint}?backfill=1"; fi
