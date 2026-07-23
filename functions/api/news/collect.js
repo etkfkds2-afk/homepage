@@ -76,7 +76,7 @@ function allowedCandidate(url, discovery) {
   try {
     const host = new URL(url).hostname.toLowerCase();
     if (discovery === 'KAKAO') return host === 'v.daum.net' || host.endsWith('.news.daum.net') || host === 'news.daum.net';
-    return !/(?:dcinside\.com|tistory\.com|blog\.naver\.com|cafe\.naver\.com)$/i.test(host);
+    return !/(?:dcinside\.com|tistory\.com|blog\.naver\.com|cafe\.naver\.com|fmkorea\.com|theqoo\.net|ruliweb\.com|clien\.net|ppomppu\.co\.kr|instiz\.net|youtube\.com|namu\.wiki)$/i.test(host);
   } catch { return false; }
 }
 

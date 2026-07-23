@@ -13,7 +13,22 @@ export async function onRequestGet({ request, env }) {
     const maxLimit = category === '바둑' ? 100 : 300;
     const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 60, 1), maxLimit);
     const uid = userId(request);
-    const where = ["h.url_key IS NULL", "a.summary_quality='full'", "TRIM(a.summary)<>''"];
+    const where = [
+      "h.url_key IS NULL", "a.summary_quality='full'", "TRIM(a.summary)<>''",
+      "instr(a.title,'�')=0",
+      "lower(a.url) NOT LIKE '%dcinside.com%'",
+      "lower(a.url) NOT LIKE '%blog.naver.com%'",
+      "lower(a.url) NOT LIKE '%cafe.naver.com%'",
+      "lower(a.url) NOT LIKE '%tistory.com%'",
+      "lower(a.url) NOT LIKE '%fmkorea.com%'",
+      "lower(a.url) NOT LIKE '%theqoo.net%'",
+      "lower(a.url) NOT LIKE '%ruliweb.com%'",
+      "lower(a.url) NOT LIKE '%clien.net%'",
+      "lower(a.url) NOT LIKE '%ppomppu.co.kr%'",
+      "lower(a.url) NOT LIKE '%instiz.net%'",
+      "lower(a.url) NOT LIKE '%youtube.com%'",
+      "lower(a.url) NOT LIKE '%namu.wiki%'"
+    ];
     const bindings = [uid, uid];
 
     if (category && CATEGORIES.has(category)) {
