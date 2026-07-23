@@ -5,9 +5,10 @@ import {
 } from '../../_lib/news-db.js';
 
 const SEARCHES = [
+  ['바둑', '바둑 대회 프로기사'],
   ['정치', '정치 주요 뉴스'], ['경제', '경제 주요 뉴스'], ['사회', '사회 주요 뉴스'],
   ['생활/문화', '생활 문화 주요 뉴스'], ['세계', '세계 주요 뉴스'],
-  ['IT/과학', 'IT 과학 주요 뉴스'], ['바둑', '바둑 대회 프로기사']
+  ['IT/과학', 'IT 과학 주요 뉴스']
 ];
 
 const BADUK_SEARCHES = [
@@ -247,7 +248,8 @@ async function collect(env) {
   const poisoned = (stored.results || []).filter(row => GENERIC_TITLES.has(row.title) || isRejectedTitle(row.title) || !validateThreeLineSummary(row.summary, row.title));
   if (poisoned.length) await env.DB.batch(poisoned.map(row => env.DB.prepare("UPDATE news_articles SET summary='',summary_quality='none' WHERE id=?").bind(row.id)));
   const retryRows = await env.DB.prepare(`SELECT id,title,raw_summary,body_text FROM news_articles
-    WHERE summary_quality='none' AND length(body_text)>=300 ORDER BY fetched_at DESC LIMIT 16`).all();
+    WHERE summary_quality='none' AND length(body_text)>=300
+    ORDER BY CASE WHEN category='바둑' THEN 0 ELSE 1 END, fetched_at DESC LIMIT 16`).all();
   for (const row of retryRows.results || []) {
     if (isRejectedTitle(row.title)) continue;
     const detail = {};
