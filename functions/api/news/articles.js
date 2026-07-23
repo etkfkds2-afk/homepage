@@ -46,7 +46,14 @@ export async function onRequestGet({ request, env }) {
       ORDER BY ${order}
       LIMIT ?
     `).bind(...bindings).all();
-    return json({ ok: true, items: result.results || [] });
+    const seenTitles = new Set();
+    const items = (result.results || []).filter(item => {
+      const key = String(item.title || '').toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
+      if (!key || seenTitles.has(key)) return false;
+      seenTitles.add(key);
+      return true;
+    });
+    return json({ ok: true, items });
   } catch (error) {
     return json({ ok: false, error: error.message }, 500);
   }
