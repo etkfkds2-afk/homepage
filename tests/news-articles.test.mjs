@@ -44,3 +44,11 @@ test('바둑 숨김 설정은 API 조회 조건에도 적용한다', async () =>
   await onRequestGet({ request: new Request('https://example.com/api/news/articles?exclude_baduk=1'), env });
   assert.match(env.articleSql, /a\.category <> '바둑'/);
 });
+
+test('도메인 출처는 사람이 읽는 언론사명으로 변환한다', async () => {
+  const row = { id: 3, url_key: 'c', url: 'https://www.yna.co.kr/view/AKR1', title: '정부는 오늘 새로운 산업 지원 대책을 공식 발표했다', source: 'yna.co.kr', press: '', category: '경제', published_at: '2026-07-23T01:00:00Z', fetched_at: '2026-07-23T01:00:00Z', summary, summary_quality: 'full', image_url: '', saved: 0 };
+  const env = mockEnv([row]);
+  const response = await onRequestGet({ request: new Request('https://example.com/api/news/articles'), env });
+  const data = await response.json();
+  assert.equal(data.items[0].outlet, '연합뉴스');
+});

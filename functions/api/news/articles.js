@@ -10,7 +10,14 @@ const NAVER_OUTLETS = {
   '032': '경향신문', '052': 'YTN', '055': 'SBS', '056': 'KBS', '057': 'MBN',
   '081': '서울신문', '082': '부산일보', '087': '강원일보', '092': '부산MBC',
   '119': '데일리안', '214': 'MBC', '215': '한국경제', '277': '아시아경제',
-  '293': '블로터', '366': '조선비즈', '374': 'SBS Biz', '421': '뉴스1'
+  '079': '노컷뉴스', '293': '블로터', '366': '조선비즈', '374': 'SBS Biz',
+  '421': '뉴스1', '448': 'TV조선'
+};
+const HOST_OUTLETS = {
+  'cctoday.co.kr': '충청투데이', 'econovill.com': '이코노믹리뷰', 'etnews.com': '전자신문',
+  'ichannela.com': '채널A', 'imaeil.com': '매일신문', 'kids.donga.com': '어린이동아',
+  'mbn.mk.co.kr': 'MBN', 'ppss.kr': 'ㅍㅍㅅㅅ', 'topstarnews.net': '톱스타뉴스',
+  'yna.co.kr': '연합뉴스'
 };
 
 function bigrams(value) {
@@ -44,7 +51,8 @@ function outletFor(item) {
   if (item.source === 'NAVER') return '네이버 뉴스';
   if (item.source === 'DAUM' || item.source === 'KAKAO') return '다음 뉴스';
   if (item.source === 'GOOGLE') return 'Google 뉴스';
-  return cleanOutlet(item.source) || '기타';
+  const source = cleanOutlet(item.source);
+  return HOST_OUTLETS[source.replace(/^www\./, '')] || source || '기타';
 }
 
 export async function onRequestGet({ request, env }) {
