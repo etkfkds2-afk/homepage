@@ -114,4 +114,6 @@ $('cards').addEventListener('click',async e=>{
 });
 $('search').onsubmit=e=>{e.preventDefault();state.q=$('query').value.trim();load()};
 nav();load();
+setInterval(()=>load({silent:true}),300000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')load({silent:true})});
 </script></body></html>
