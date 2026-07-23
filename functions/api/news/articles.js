@@ -27,7 +27,14 @@ export async function onRequestGet({ request, env }) {
       "lower(a.url) NOT LIKE '%ppomppu.co.kr%'",
       "lower(a.url) NOT LIKE '%instiz.net%'",
       "lower(a.url) NOT LIKE '%youtube.com%'",
-      "lower(a.url) NOT LIKE '%namu.wiki%'"
+      "lower(a.url) NOT LIKE '%namu.wiki%'",
+      "a.summary NOT LIKE '%글자크기%'",
+      "a.summary NOT LIKE '%글자 크기%'",
+      "a.summary NOT LIKE '%본문 내용은%'",
+      "a.title NOT LIKE '%시세 조회로%'",
+      "a.title NOT LIKE '%현명한 투자하세요%'",
+      "a.title NOT LIKE '%숙소 환급 상세 안내%'",
+      "a.title NOT LIKE '%자동차월드%'"
     ];
     const bindings = [uid, uid];
 
