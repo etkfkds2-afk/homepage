@@ -2,6 +2,16 @@ import { ensureNewsDb, json, userId } from '../../_lib/news-db.js';
 import { normalizeText, validateThreeLineSummary } from '../../_lib/news-summary.js';
 
 const CATEGORIES = new Set(['정치', '경제', '사회', '생활/문화', '세계', 'IT/과학', '바둑', '기타']);
+const NAVER_OUTLETS = {
+  '001': '연합뉴스', '003': '뉴시스', '005': '국민일보', '008': '머니투데이',
+  '009': '매일경제', '011': '서울경제', '014': '파이낸셜뉴스', '015': '한국경제TV',
+  '016': '헤럴드경제', '018': '이데일리', '020': '동아일보', '021': '문화일보',
+  '022': '세계일보', '023': '조선일보', '025': '중앙일보', '028': '한겨레',
+  '032': '경향신문', '052': 'YTN', '055': 'SBS', '056': 'KBS', '057': 'MBN',
+  '081': '서울신문', '082': '부산일보', '087': '강원일보', '092': '부산MBC',
+  '119': '데일리안', '214': 'MBC', '215': '한국경제', '277': '아시아경제',
+  '293': '블로터', '366': '조선비즈', '374': 'SBS Biz', '421': '뉴스1'
+};
 
 function bigrams(value) {
   const text = String(value || '').toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
@@ -26,6 +36,17 @@ function cleanOutlet(value) {
     .slice(0, 40);
 }
 
+function outletFor(item) {
+  const press = cleanOutlet(item.press);
+  if (press) return press;
+  const oid = String(item.url || '').match(/\/article\/(\d{3})\//)?.[1];
+  if (oid && NAVER_OUTLETS[oid]) return NAVER_OUTLETS[oid];
+  if (item.source === 'NAVER') return '네이버 뉴스';
+  if (item.source === 'DAUM' || item.source === 'KAKAO') return '다음 뉴스';
+  if (item.source === 'GOOGLE') return 'Google 뉴스';
+  return cleanOutlet(item.source) || '기타';
+}
+
 export async function onRequestGet({ request, env }) {
   try {
     await ensureNewsDb(env);
@@ -33,7 +54,8 @@ export async function onRequestGet({ request, env }) {
     const category = url.searchParams.get('category') || '';
     const query = (url.searchParams.get('q') || '').trim().slice(0, 100);
     const requestedView = url.searchParams.get('view') || 'latest';
-    const view = ['saved', 'popular'].includes(requestedView) ? requestedView : 'latest';
+    const view = ['saved', 'popular', 'home'].includes(requestedView) ? requestedView : 'latest';
+    const excludeBaduk = url.searchParams.get('exclude_baduk') === '1';
     const maxLimit = category === '바둑' ? 100 : 300;
     const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 60, 1), maxLimit);
     const uid = userId(request);
@@ -66,6 +88,7 @@ export async function onRequestGet({ request, env }) {
       where.push('a.category = ?');
       bindings.push(category);
     }
+    if (excludeBaduk && category !== '바둑') where.push("a.category <> '바둑'");
     if (query) {
       where.push('(a.title LIKE ? OR a.summary LIKE ? OR a.press LIKE ?)');
       const term = `%${query.replace(/[\\%_]/g, '\\$&')}%`;
@@ -81,6 +104,8 @@ export async function onRequestGet({ request, env }) {
 
     const order = view === 'popular'
       ? "p.score DESC, COALESCE(NULLIF(a.published_at,''),a.fetched_at) DESC"
+      : view === 'home'
+        ? "CASE WHEN p.title IS NULL THEN 0 ELSE 1 END DESC, p.score DESC, COALESCE(NULLIF(a.published_at,''),a.fetched_at) DESC"
       : "COALESCE(NULLIF(a.published_at,''), a.fetched_at) DESC";
 
     const result = await env.DB.prepare(`
@@ -96,18 +121,26 @@ export async function onRequestGet({ request, env }) {
       LIMIT ?
     `).bind(...bindings).all();
     const accepted = [];
-    const items = (result.results || []).filter(item => {
+    for (const item of result.results || []) {
       item.summary = normalizeText(String(item.summary || '').replace(/([1-3][.)])\s*&#10;/gi, '$1 '));
       item.image_url = normalizeText(item.image_url);
       item.source = cleanOutlet(item.source) || '기타';
       item.press = cleanOutlet(item.press);
       if (item.press === item.source) item.press = '';
-      if (!validateThreeLineSummary(item.summary, item.title)) return false;
+      item.outlet = outletFor(item);
+      if (!validateThreeLineSummary(item.summary, item.title)) continue;
       const first = String(item.summary || '').split('\n')[0].replace(/^\s*1[.)]\s*/, '');
-      if (accepted.some(old => similar(item.title, old.title) || similar(first, old.first, 0.72))) return false;
-      accepted.push({ title: item.title, first });
-      return true;
-    }).slice(0, limit);
+      const group = accepted.find(old => similar(item.title, old.title) || similar(first, old.first, 0.72));
+      if (group) {
+        if (!group.related.some(old => old.url_key === item.url_key)) {
+          group.related.push({ url_key: item.url_key, url: item.url, title: item.title, outlet: item.outlet });
+          group.related_count = group.related.length;
+        }
+        continue;
+      }
+      accepted.push({ ...item, first, related: [], related_count: 0 });
+    }
+    const items = accepted.slice(0, limit).map(({ first, ...item }) => item);
     return json({ ok: true, items });
   } catch (error) {
     return json({ ok: false, error: error.message }, 500);
