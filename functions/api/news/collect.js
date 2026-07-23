@@ -265,7 +265,7 @@ async function collectArchivedTop(slot) {
 
 async function collect(env, { backfill = false, repair = false, googleDiscoveries = [] } = {}) {
   const diagnostics = { mode: backfill ? 'backfill' : 'scheduled', retry_attempted: 0, retry_repaired: 0, samples: [] };
-  let aiRetryRemaining = repair ? 12 : (backfill ? 6 : 4);
+  let aiRetryRemaining = repair ? 12 : (backfill ? 12 : 12);
   let aiNewRemaining = repair ? 0 : (backfill ? 6 : 3);
   const summarize = async (payload, detail, purpose = 'new') => {
     const useAi = payload.category === '바둑'
