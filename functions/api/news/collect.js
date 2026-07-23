@@ -40,16 +40,19 @@ async function fetchArticleText(url) {
       headers: { 'user-agent': 'Mozilla/5.0 NewsBrief/Cloudflare' },
       cf: { cacheTtl: 300, cacheEverything: false }
     });
-    if (!response.ok) return '';
+    if (!response.ok) return { body: '', image: '' };
     const type = response.headers.get('content-type') || '';
-    if (!type.includes('text/html')) return '';
+    if (!type.includes('text/html')) return { body: '', image: '' };
     const html = (await response.text()).slice(0, 800000);
+    const image = (html.match(/<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image)["'][^>]+content=["']([^"']+)/i)?.[1]
+      || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:image|twitter:image)["']/i)?.[1] || '').trim();
     const article = html.match(/<(?:article|div)[^>]+(?:id|class)=["'][^"']*(?:article|news|content|body)[^"']*["'][^>]*>([\s\S]{100,}?)<\/(?:article|div)>/i)?.[1] || '';
-    return stripHtml(article
+    const body = stripHtml(article
       .replace(/<script[\s\S]*?<\/script>/gi, ' ')
       .replace(/<style[\s\S]*?<\/style>/gi, ' ')).slice(0, 12000);
+    return { body, image: /^https?:\/\//.test(image) ? image : '' };
   } catch {
-    return '';
+    return { body: '', image: '' };
   }
 }
 
@@ -60,6 +63,9 @@ async function naverSearch(env, query) {
   const endpoint = new URL('https://openapi.naver.com/v1/search/news.json');
   endpoint.searchParams.set('query', query);
   endpoint.searchParams.set('display', '5');
+  endpoint.searchParams.set('display', '6');
+  const slot = Math.floor(Date.now() / 1800000) % 5;
+  endpoint.searchParams.set('start', String(slot * 6 + 1));
   endpoint.searchParams.set('sort', 'date');
   const response = await fetch(endpoint, {
     headers: {
@@ -78,7 +84,7 @@ async function collect(env) {
   const candidates = [];
   for (const [category, query] of SEARCHES) {
     const items = await naverSearch(env, query);
-    for (const item of items.slice(0, 4)) candidates.push({ category, item });
+    for (const item of items.slice(0, 6)) candidates.push({ category, item });
   }
 
   let inserted = 0;
@@ -92,7 +98,8 @@ async function collect(env) {
     if (exists) continue;
 
     const rawSummary = stripHtml(item.description);
-    const body = await fetchArticleText(url);
+    const article = await fetchArticleText(url);
+    const body = article.body;
     const summary = buildSummary({ title, rawSummary, body });
     const lineCount = summary ? summary.split('\n').length : 0;
     if (!lineCount) continue;
@@ -109,7 +116,7 @@ async function collect(env) {
         summary_quality=excluded.summary_quality
     `).bind(
       url, urlKey, title, 'NAVER', press, category, parseDate(item.pubDate), rawSummary,
-      body, summary, lineCount >= 3 ? 'full' : 'short', ''
+      body, summary, lineCount >= 3 ? 'full' : 'short', article.image
     ).run();
     inserted += 1;
   }
