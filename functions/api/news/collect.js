@@ -25,6 +25,7 @@ const BADUK_SEARCHES = [
 const GENERIC_TITLES = new Set(['이 시각 주요 뉴스', '오늘의 주요 뉴스', '주요 뉴스', '뉴스 브리핑']);
 
 const BODY_JUNK = /(?:무단전재|재배포\s*금지|저작권자|구독|로그인|회원가입|제보|관련기사|추천뉴스|많이\s*본\s*뉴스|기사제공|기자\s*[A-Z0-9._%+-]+@|기사의?\s*본문\s*내용|글자\s*크기|인쇄하기|공유하기)/i;
+const DEAD_PAGE = /(?:존재하지\s*않는\s*페이지|요청하신\s*페이지를\s*찾을\s*수\s*없|삭제된\s*기사|기사가\s*존재하지\s*않|page\s*not\s*found|\b404\b)/i;
 
 function classify(category, title, body = '') {
   const titleText = String(title || '');
@@ -123,6 +124,7 @@ async function fetchArticleText(url) {
     const type = response.headers.get('content-type') || '';
     if (!type.includes('text/html')) return { body: '', image: '', press: '' };
     const html = (await response.text()).slice(0, 800000);
+    if (DEAD_PAGE.test(html.slice(0, 30000))) return { body: '', image: '', press: '' };
     const image = normalizeText(html.match(/<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image)["'][^>]+content=["']([^"']+)/i)?.[1]
       || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:image|twitter:image)["']/i)?.[1] || '');
     const siteName = cleanPressName(html.match(/<meta[^>]+(?:property|name)=["']og:site_name["'][^>]+content=["']([^"']+)/i)?.[1]
@@ -441,6 +443,9 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
     let article = await fetchArticleText(fetchUrl);
     if (article.body.length < 300 && fetchUrl !== url) article = await fetchArticleText(url);
     const body = article.body;
+    // Search snippets are discovery data, not an article body. Never create a
+    // three-line card when the destination page is missing or cannot be read.
+    if (body.length < 180) return 0;
     const finalCategory = classify(category, title, body || rawSummary);
     const summary = await summarize({ title, rawSummary, body });
     const validSummary = validateThreeLineSummary(summary, title);

@@ -83,6 +83,7 @@ export async function onRequestGet({ request, env }) {
       "lower(a.url) NOT LIKE '%instiz.net%'",
       "lower(a.url) NOT LIKE '%youtube.com%'",
       "lower(a.url) NOT LIKE '%namu.wiki%'",
+      "lower(a.url) NOT LIKE '%sports.naver.com/%'",
       "a.summary NOT LIKE '%글자크기%'",
       "a.summary NOT LIKE '%글자 크기%'",
       "a.summary NOT LIKE '%본문 내용은%'",

@@ -88,6 +88,10 @@ export async function sha256(value) {
 export function canonicalUrl(value) {
   try {
     const url = new URL(String(value || ''));
+    const oldSports = url.hostname.toLowerCase() === 'sports.naver.com'
+      ? url.pathname.match(/^\/(?:[^/]+)\/article\/(\d{3})\/(\d+)/)
+      : null;
+    if (oldSports) return `https://n.news.naver.com/mnews/article/${oldSports[1]}/${oldSports[2]}`;
     url.hash = '';
     for (const key of [...url.searchParams.keys()]) {
       if (/^(?:utm_|fbclid|gclid|ref|from|sid$)/i.test(key)) url.searchParams.delete(key);
