@@ -12,8 +12,30 @@ const SEARCHES = [
 
 const GENERIC_TITLES = new Set(['이 시각 주요 뉴스', '오늘의 주요 뉴스', '주요 뉴스', '뉴스 브리핑']);
 
+const BODY_JUNK = /(?:무단전재|재배포\s*금지|저작권자|구독|로그인|회원가입|제보|관련기사|추천뉴스|많이\s*본\s*뉴스|기사제공|기자\s*[A-Z0-9._%+-]+@)/i;
+
 function stripHtml(value) {
-  return normalizeText(String(value || '').replace(/<[^>]*>/g, ' '));
+  return normalizeText(String(value || '')
+    .replace(/<(?:br|\/p|\/div|\/li|\/h[1-6])\b[^>]*>/gi, '\n')
+    .replace(/<[^>]*>/g, ' '));
+}
+
+function cleanBody(value) {
+  const lines = normalizeText(value).split(/\n+/).map(line => line.trim()).filter(line =>
+    line.length >= 12 && !BODY_JUNK.test(line) && !/^\s*(?:사진|영상|그래픽|ADVERTISEMENT)\s*[=:]/i.test(line)
+  );
+  return lines.join('\n').slice(0, 16000);
+}
+
+function findArticleBodies(value, found = []) {
+  if (!value || found.length > 30) return found;
+  if (Array.isArray(value)) {
+    for (const item of value) findArticleBodies(item, found);
+  } else if (typeof value === 'object') {
+    if (typeof value.articleBody === 'string') found.push(value.articleBody);
+    for (const child of Object.values(value)) findArticleBodies(child, found);
+  }
+  return found;
 }
 
 function cleanTitle(value) {
@@ -51,15 +73,14 @@ async function fetchArticleText(url) {
     for (const match of html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
       try {
         const data = JSON.parse(match[1]);
-        const nodes = Array.isArray(data) ? data : (data['@graph'] || [data]);
-        const found = nodes.find(node => node && typeof node.articleBody === 'string');
-        if (found?.articleBody?.length > jsonBody.length) jsonBody = found.articleBody;
+        for (const found of findArticleBodies(data)) if (found.length > jsonBody.length) jsonBody = found;
       } catch {}
     }
-    const article = html.match(/<(?:article|div)[^>]+(?:id|class)=["'][^"']*(?:dic_area|article_view|article-body|newsct_article|article_body)[^"']*["'][^>]*>([\s\S]{100,}?)<\/(?:article|div)>/i)?.[1] || '';
-    const body = normalizeText(jsonBody || stripHtml(article
+    const articleStart = html.search(/<(?:article|div)[^>]+(?:id|class)=["'][^"']*(?:dic_area|article_view|article-body|newsct_article|article_body|articleBody|news_body|view_cont)[^"']*["'][^>]*>/i);
+    const article = articleStart >= 0 ? html.slice(articleStart, Math.min(html.length, articleStart + 180000)) : '';
+    const body = cleanBody(jsonBody || stripHtml(article
       .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<style[\s\S]*?<\/style>/gi, ' '))).slice(0, 12000);
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')));
     return { body, image: /^https?:\/\//.test(image) ? image : '' };
   } catch {
     return { body: '', image: '' };
@@ -89,7 +110,7 @@ async function collect(env) {
   const poisoned = (stored.results || []).filter(row => GENERIC_TITLES.has(row.title) || !validateThreeLineSummary(row.summary, row.title));
   if (poisoned.length) await env.DB.batch(poisoned.map(row => env.DB.prepare("UPDATE news_articles SET summary='',summary_quality='none' WHERE id=?").bind(row.id)));
   const retryRows = await env.DB.prepare(`SELECT id,title,raw_summary,body_text FROM news_articles
-    WHERE summary_quality='none' AND length(body_text)>=300 ORDER BY fetched_at DESC LIMIT 8`).all();
+    WHERE summary_quality='none' AND length(body_text)>=300 ORDER BY fetched_at DESC LIMIT 16`).all();
   for (const row of retryRows.results || []) {
     const repaired = await makeBestSummary(env, { title: row.title, rawSummary: row.raw_summary, body: row.body_text });
     if (validateThreeLineSummary(repaired, row.title)) {
@@ -112,7 +133,9 @@ async function collect(env) {
     const exists = await env.DB.prepare('SELECT id,image_url,summary_quality,raw_summary,body_text FROM news_articles WHERE url_key=?').bind(urlKey).first();
     if (exists) {
       if (!exists.image_url || exists.summary_quality !== 'full') {
-        const article = await fetchArticleText(url);
+        const fetchUrl = /^https?:\/\/(?:n\.)?news\.naver\.com\//i.test(item.link || '') ? item.link : url;
+        let article = await fetchArticleText(fetchUrl);
+        if (article.body.length < 300 && fetchUrl !== url) article = await fetchArticleText(url);
         const repaired = await makeBestSummary(env, { title, rawSummary: stripHtml(item.description) || exists.raw_summary, body: article.body || exists.body_text });
         const valid = validateThreeLineSummary(repaired, title);
         await env.DB.prepare(`UPDATE news_articles SET
@@ -126,7 +149,9 @@ async function collect(env) {
     }
 
     const rawSummary = stripHtml(item.description);
-    const article = await fetchArticleText(url);
+    const fetchUrl = /^https?:\/\/(?:n\.)?news\.naver\.com\//i.test(item.link || '') ? item.link : url;
+    let article = await fetchArticleText(fetchUrl);
+    if (article.body.length < 300 && fetchUrl !== url) article = await fetchArticleText(url);
     const body = article.body;
     const summary = await makeBestSummary(env, { title, rawSummary, body });
     const validSummary = validateThreeLineSummary(summary, title);
