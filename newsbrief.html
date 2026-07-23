@@ -55,6 +55,7 @@ async function load({silent=false}={}){
   const p=new URLSearchParams({limit:state.mode==='home'?'30':state.mode==='baduk'?'100':'300',view});
   const category=state.mode==='baduk'?'바둑':state.category;
   if(category)p.set('category',category);
+  if(state.mode==='latest'||state.mode==='popular')p.set('exclude_baduk','1');
   if(state.q)p.set('q',state.q);
   try{
     if(state.mode==='home'&&!state.q){
