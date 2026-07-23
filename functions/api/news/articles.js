@@ -26,11 +26,12 @@ export async function onRequestGet({ request, env }) {
       bindings.push(term, term, term);
     }
     if (view === 'saved') where.push('s.url_key IS NOT NULL');
+    if (view === 'popular') where.push('p.title IS NOT NULL');
     if (view !== 'saved') where.push("COALESCE(NULLIF(a.published_at,''),a.fetched_at) >= datetime('now','-30 days')");
     bindings.push(limit);
 
     const order = view === 'popular'
-      ? "COALESCE(p.score,0) DESC, COALESCE(NULLIF(a.published_at,''),a.fetched_at) DESC"
+      ? "p.score DESC, COALESCE(NULLIF(a.published_at,''),a.fetched_at) DESC"
       : "COALESCE(NULLIF(a.published_at,''), a.fetched_at) DESC";
 
     const result = await env.DB.prepare(`
@@ -40,7 +41,7 @@ export async function onRequestGet({ request, env }) {
       FROM news_articles a
       LEFT JOIN news_saved s ON s.url_key=a.url_key AND s.user_id=?
       LEFT JOIN news_hidden h ON h.url_key=a.url_key AND h.user_id=?
-      LEFT JOIN news_popularity p ON p.url_key=a.url_key AND p.collected_at >= datetime('now','-2 days')
+      LEFT JOIN news_popular_items p ON (p.url_key=a.url_key OR p.title=a.title) AND p.collected_at >= datetime('now','-2 days')
       WHERE ${where.join(' AND ')}
       ORDER BY ${order}
       LIMIT ?

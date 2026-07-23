@@ -151,5 +151,6 @@ export function validateThreeLineSummary(summary, title = '') {
 }
 
 export function isRejectedTitle(title = '') {
+  if (/�/.test(title) || (String(title).match(/\?/g) || []).length >= 5) return true;
   return /(?:퇴근길\s*이슈|뉴스\s*브리핑|뉴스\s*잇\s*\(|뉴스\s*바이트|모닝픽|주요\s*뉴스\s*]|주요뉴스\s*…|미리보는\s*.*신문|증시\s*포커스|증시포커스|뉴스\s*새벽배송|\[\s*뉴스\s*(?:\.{2,}|…)|스포츠용어\s*산책)/i.test(title);
 }

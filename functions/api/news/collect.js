@@ -62,6 +62,24 @@ function parseDate(value) {
   return Number.isNaN(date.valueOf()) ? '' : date.toISOString();
 }
 
+function articleSource(url, discovery = '', press = '') {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+    if (host.endsWith('naver.com')) return 'NAVER';
+    if (host.endsWith('daum.net')) return 'DAUM';
+    if (host.endsWith('google.com')) return 'GOOGLE';
+    return press || host;
+  } catch { return press || discovery || '기타'; }
+}
+
+function allowedCandidate(url, discovery) {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (discovery === 'KAKAO') return host === 'v.daum.net' || host.endsWith('.news.daum.net') || host === 'news.daum.net';
+    return !/(?:dcinside\.com|tistory\.com|blog\.naver\.com|cafe\.naver\.com)$/i.test(host);
+  } catch { return false; }
+}
+
 async function fetchArticleText(url) {
   try {
     const response = await fetch(url, {
@@ -159,7 +177,12 @@ async function googleNewsSearch(query) {
 async function popularPage(url, source) {
   const response = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0 NewsBrief/1.0' } });
   if (!response.ok) return [];
-  const html = await response.text();
+  const bytes = await response.arrayBuffer();
+  const declared = response.headers.get('content-type') || '';
+  let html = new TextDecoder('utf-8').decode(bytes);
+  if (/euc-?kr|ks_c_5601|cp949/i.test(declared) || (html.match(/�/g) || []).length >= 3) {
+    html = new TextDecoder('euc-kr').decode(bytes);
+  }
   const out = [], seen = new Set();
   for (const match of html.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
     let href = normalizeText(match[1]);
@@ -195,6 +218,14 @@ async function collect(env) {
     return makeBestSummary(useAi ? env : { AI: undefined }, payload, detail);
   };
   const stored = await env.DB.prepare('SELECT id,title,summary FROM news_articles').all();
+  const mislabeled = await env.DB.prepare("SELECT id,url,source,press FROM news_articles WHERE source IN ('NAVER','KAKAO','GOOGLE')").all();
+  for (const row of mislabeled.results || []) {
+    if (row.source === 'KAKAO' && !allowedCandidate(row.url, 'KAKAO')) {
+      await env.DB.prepare("UPDATE news_articles SET summary='',summary_quality='none' WHERE id=?").bind(row.id).run();
+    }
+    const fixed = articleSource(row.url, row.source, row.press);
+    if (fixed !== row.source) await env.DB.prepare('UPDATE news_articles SET source=? WHERE id=?').bind(fixed, row.id).run();
+  }
   const poisoned = (stored.results || []).filter(row => GENERIC_TITLES.has(row.title) || isRejectedTitle(row.title) || !validateThreeLineSummary(row.summary, row.title));
   if (poisoned.length) await env.DB.batch(poisoned.map(row => env.DB.prepare("UPDATE news_articles SET summary='',summary_quality='none' WHERE id=?").bind(row.id)));
   const retryRows = await env.DB.prepare(`SELECT id,title,raw_summary,body_text FROM news_articles
@@ -246,6 +277,10 @@ async function collect(env) {
         VALUES(?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(url_key) DO UPDATE SET
         score=excluded.score,rank=excluded.rank,source=excluded.source,collected_at=CURRENT_TIMESTAMP`)
         .bind(key, 101 - row.rank, row.rank, row.source).run();
+      await env.DB.prepare(`INSERT INTO news_popular_items(title,url_key,score,rank,source,collected_at)
+        VALUES(?,?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(title) DO UPDATE SET
+        url_key=excluded.url_key,score=excluded.score,rank=excluded.rank,source=excluded.source,collected_at=CURRENT_TIMESTAMP`)
+        .bind(row.title, key, 101 - row.rank, row.rank, row.source).run();
     }
   } catch (error) {
     diagnostics.popular_error = String(error?.message || error).slice(0, 120);
@@ -258,6 +293,7 @@ async function collect(env) {
     const title = cleanTitle(item.title);
     const publishedAt = parseDate(item.pubDate);
     if (!url || !title || GENERIC_TITLES.has(title) || isRejectedTitle(title) || !/^https?:\/\//.test(url)) continue;
+    if (!allowedCandidate(url, source)) continue;
     if (publishedAt && Date.parse(publishedAt) < Date.now() - 30 * 86400000) continue;
     const press = item.press || pressFromTitle(item.title);
     const urlKey = await sha256(url);
@@ -270,11 +306,12 @@ async function collect(env) {
         const repaired = await summarize({ title, rawSummary: stripHtml(item.description) || exists.raw_summary, body: article.body || exists.body_text });
         const valid = validateThreeLineSummary(repaired, title);
         await env.DB.prepare(`UPDATE news_articles SET
+          title=?,
           image_url=CASE WHEN ?<>'' THEN ? ELSE image_url END,
           body_text=CASE WHEN ?<>'' THEN ? ELSE body_text END,
           summary=CASE WHEN ? THEN ? ELSE summary END,
           summary_quality=CASE WHEN ? THEN 'full' ELSE summary_quality END
-          WHERE id=?`).bind(article.image, article.image, article.body, article.body, valid ? 1 : 0, repaired, valid ? 1 : 0, exists.id).run();
+          WHERE id=?`).bind(title, article.image, article.image, article.body, article.body, valid ? 1 : 0, repaired, valid ? 1 : 0, exists.id).run();
       }
       continue;
     }
@@ -298,7 +335,7 @@ async function collect(env) {
         summary=CASE WHEN length(excluded.summary)>length(news_articles.summary) THEN excluded.summary ELSE news_articles.summary END,
         summary_quality=excluded.summary_quality
     `).bind(
-      url, urlKey, title, source || 'NAVER', press, category, publishedAt, rawSummary,
+      url, urlKey, title, articleSource(url, source, press), press, category, publishedAt, rawSummary,
       body, validSummary ? summary : '', validSummary ? 'full' : 'none', article.image
     ).run();
     inserted += 1;
