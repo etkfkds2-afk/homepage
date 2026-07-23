@@ -186,9 +186,9 @@ function xmlText(block, tag) {
     .replace(/^<!\[CDATA\[|\]\]>$/g, ''));
 }
 
-async function googleNewsSearch(query) {
+async function googleNewsSearch(query, days = 30) {
   const endpoint = new URL('https://news.google.com/rss/search');
-  endpoint.searchParams.set('q', `${query} when:30d`);
+  endpoint.searchParams.set('q', `${query} when:${Math.min(Math.max(days, 1), 30)}d`);
   endpoint.searchParams.set('hl', 'ko');
   endpoint.searchParams.set('gl', 'KR');
   endpoint.searchParams.set('ceid', 'KR:ko');
@@ -399,7 +399,7 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
     }
   }
   if (!backfill) try {
-    for (const item of (await googleNewsSearch(badukQuery)).slice(0, 3)) candidates.push({ category: '바둑', item, source: 'GOOGLE' });
+    for (const item of (await googleNewsSearch(badukQuery, 1)).slice(0, 3)) candidates.push({ category: '바둑', item, source: 'GOOGLE' });
   } catch (error) {
     diagnostics.google_error = String(error?.message || error).slice(0, 120);
   }
