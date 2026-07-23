@@ -106,15 +106,20 @@ async function naverSearch(env, query) {
 }
 
 async function collect(env) {
+  const diagnostics = { retry_attempted: 0, retry_repaired: 0, samples: [] };
   const stored = await env.DB.prepare('SELECT id,title,summary FROM news_articles').all();
   const poisoned = (stored.results || []).filter(row => GENERIC_TITLES.has(row.title) || !validateThreeLineSummary(row.summary, row.title));
   if (poisoned.length) await env.DB.batch(poisoned.map(row => env.DB.prepare("UPDATE news_articles SET summary='',summary_quality='none' WHERE id=?").bind(row.id)));
   const retryRows = await env.DB.prepare(`SELECT id,title,raw_summary,body_text FROM news_articles
     WHERE summary_quality='none' AND length(body_text)>=300 ORDER BY fetched_at DESC LIMIT 16`).all();
   for (const row of retryRows.results || []) {
-    const repaired = await makeBestSummary(env, { title: row.title, rawSummary: row.raw_summary, body: row.body_text });
+    const detail = {};
+    const repaired = await makeBestSummary(env, { title: row.title, rawSummary: row.raw_summary, body: row.body_text }, detail);
+    diagnostics.retry_attempted += 1;
+    if (diagnostics.samples.length < 2) diagnostics.samples.push({ title: row.title, ...detail });
     if (validateThreeLineSummary(repaired, row.title)) {
       await env.DB.prepare("UPDATE news_articles SET summary=?,summary_quality='full' WHERE id=?").bind(repaired, row.id).run();
+      diagnostics.retry_repaired += 1;
     }
   }
   const candidates = [];
@@ -172,7 +177,7 @@ async function collect(env) {
     ).run();
     inserted += 1;
   }
-  return inserted;
+  return { inserted, diagnostics };
 }
 
 export async function onRequestPost({ request, env }) {
@@ -183,10 +188,10 @@ export async function onRequestPost({ request, env }) {
     const started = new Date().toISOString();
     const run = await env.DB.prepare("INSERT INTO news_runs(started_at,status) VALUES(?,'running') RETURNING id").bind(started).first();
     runId = run?.id;
-    const inserted = await collect(env);
+    const result = await collect(env);
     await env.DB.prepare("UPDATE news_runs SET finished_at=?,status='ok',inserted_count=? WHERE id=?")
-      .bind(new Date().toISOString(), inserted, runId).run();
-    return json({ ok: true, inserted });
+      .bind(new Date().toISOString(), result.inserted, runId).run();
+    return json({ ok: true, ...result });
   } catch (error) {
     if (runId) {
       await env.DB.prepare("UPDATE news_runs SET finished_at=?,status='error',message=? WHERE id=?")

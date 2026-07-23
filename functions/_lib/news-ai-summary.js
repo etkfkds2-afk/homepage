@@ -25,7 +25,7 @@ function normalizeAiAnswer(value) {
   return lines.map((line, index) => `${index + 1}) ${line}`).join('\n');
 }
 
-export async function makeBestSummary(env, { title = '', rawSummary = '', body = '' } = {}) {
+export async function makeBestSummary(env, { title = '', rawSummary = '', body = '' } = {}, diagnostics = null) {
   const source = normalizeText(body || rawSummary).slice(0, 9000);
   if (!source) return '';
 
@@ -52,8 +52,18 @@ export async function makeBestSummary(env, { title = '', rawSummary = '', body =
         top_p: 0.8
       });
       const aiSummary = normalizeAiAnswer(result?.response || result?.result?.response || '');
-      if (validateThreeLineSummary(aiSummary, title) && numbersGrounded(aiSummary, `${title}\n${source}`)) return aiSummary;
-    } catch {}
+      const structurallyValid = validateThreeLineSummary(aiSummary, title);
+      const grounded = numbersGrounded(aiSummary, `${title}\n${source}`);
+      if (diagnostics) Object.assign(diagnostics, {
+        ai_returned: Boolean(result?.response || result?.result?.response),
+        normalized: aiSummary.slice(0, 700),
+        structurally_valid: structurallyValid,
+        numbers_grounded: grounded
+      });
+      if (structurallyValid && grounded) return aiSummary;
+    } catch (error) {
+      if (diagnostics) diagnostics.ai_error = String(error?.message || error).slice(0, 300);
+    }
   }
 
   const extractive = buildSummary({ title, rawSummary, body: source });
