@@ -10,7 +10,8 @@ export async function onRequestGet({ request, env }) {
     const query = (url.searchParams.get('q') || '').trim().slice(0, 100);
     const requestedView = url.searchParams.get('view') || 'latest';
     const view = ['saved', 'popular'].includes(requestedView) ? requestedView : 'latest';
-    const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 60, 1), 200);
+    const maxLimit = category === '바둑' ? 100 : 300;
+    const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 60, 1), maxLimit);
     const uid = userId(request);
     const where = ["h.url_key IS NULL", "a.summary_quality='full'", "TRIM(a.summary)<>''"];
     const bindings = [uid, uid];

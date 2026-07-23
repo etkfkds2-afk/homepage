@@ -26,7 +26,7 @@ function normalizeAiAnswer(value) {
 }
 
 export async function makeBestSummary(env, { title = '', rawSummary = '', body = '' } = {}, diagnostics = null) {
-  const source = normalizeText(body || rawSummary).slice(0, 9000);
+  const source = normalizeText(body || rawSummary).slice(0, 6000);
   if (!source) return '';
 
   if (env?.AI && source.length >= 300) {
