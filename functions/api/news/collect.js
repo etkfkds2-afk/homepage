@@ -73,7 +73,15 @@ function cleanTitle(value) {
 
 function pressFromTitle(value) {
   const text = stripHtml(value);
-  return (text.match(/\s[-|–—]\s([^\-|–—]{1,30})$/u)?.[1] || '').trim().slice(0, 80);
+  return cleanPressName(text.match(/\s[-|–—]\s([^\-|–—]{1,30})$/u)?.[1] || '');
+}
+
+function cleanPressName(value) {
+  return stripHtml(value)
+    .replace(/\s+(?:[-|–—]|·)\s+(?:[^\n]{2,})$/u, '')
+    .replace(/\s*(?:대한민국|울산)\s*(?:최초|최고)[^\n]*$/u, '')
+    .trim()
+    .slice(0, 40);
 }
 
 function parseDate(value) {
@@ -87,8 +95,8 @@ function articleSource(url, discovery = '', press = '') {
     if (host.endsWith('naver.com')) return 'NAVER';
     if (host.endsWith('daum.net')) return 'DAUM';
     if (host.endsWith('google.com')) return 'GOOGLE';
-    return press || host;
-  } catch { return press || discovery || '기타'; }
+    return cleanPressName(press) || host;
+  } catch { return cleanPressName(press) || discovery || '기타'; }
 }
 
 function allowedCandidate(url, discovery) {
@@ -112,8 +120,8 @@ async function fetchArticleText(url) {
     const html = (await response.text()).slice(0, 800000);
     const image = normalizeText(html.match(/<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image)["'][^>]+content=["']([^"']+)/i)?.[1]
       || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:image|twitter:image)["']/i)?.[1] || '');
-    const siteName = stripHtml(html.match(/<meta[^>]+(?:property|name)=["']og:site_name["'][^>]+content=["']([^"']+)/i)?.[1]
-      || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']og:site_name["']/i)?.[1] || '').slice(0, 80);
+    const siteName = cleanPressName(html.match(/<meta[^>]+(?:property|name)=["']og:site_name["'][^>]+content=["']([^"']+)/i)?.[1]
+      || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']og:site_name["']/i)?.[1] || '');
     let jsonBody = '';
     for (const match of html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
       try {

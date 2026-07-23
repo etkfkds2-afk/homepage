@@ -18,6 +18,14 @@ function similar(a, b, threshold = 0.64) {
   return (2 * common) / (left.size + right.size) >= threshold;
 }
 
+function cleanOutlet(value) {
+  return normalizeText(value)
+    .replace(/\s+(?:[-|–—]|·)\s+(?:[^\n]{2,})$/u, '')
+    .replace(/\s*(?:대한민국|울산)\s*(?:최초|최고)[^\n]*$/u, '')
+    .trim()
+    .slice(0, 40);
+}
+
 export async function onRequestGet({ request, env }) {
   try {
     await ensureNewsDb(env);
@@ -91,6 +99,9 @@ export async function onRequestGet({ request, env }) {
     const items = (result.results || []).filter(item => {
       item.summary = normalizeText(String(item.summary || '').replace(/([1-3][.)])\s*&#10;/gi, '$1 '));
       item.image_url = normalizeText(item.image_url);
+      item.source = cleanOutlet(item.source) || '기타';
+      item.press = cleanOutlet(item.press);
+      if (item.press === item.source) item.press = '';
       if (!validateThreeLineSummary(item.summary, item.title)) return false;
       const first = String(item.summary || '').split('\n')[0].replace(/^\s*1[.)]\s*/, '');
       if (accepted.some(old => similar(item.title, old.title) || similar(first, old.first, 0.72))) return false;
