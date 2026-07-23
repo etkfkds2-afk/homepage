@@ -2,6 +2,21 @@ import { ensureNewsDb, json, userId } from '../../_lib/news-db.js';
 
 const CATEGORIES = new Set(['정치', '경제', '사회', '생활/문화', '세계', 'IT/과학', '바둑', '기타']);
 
+function bigrams(value) {
+  const text = String(value || '').toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
+  const out = new Set();
+  for (let i = 0; i < text.length - 1; i += 1) out.add(text.slice(i, i + 2));
+  return out;
+}
+
+function similar(a, b, threshold = 0.64) {
+  const left = bigrams(a), right = bigrams(b);
+  if (!left.size || !right.size) return false;
+  let common = 0;
+  for (const token of left) if (right.has(token)) common += 1;
+  return (2 * common) / (left.size + right.size) >= threshold;
+}
+
 export async function onRequestGet({ request, env }) {
   try {
     await ensureNewsDb(env);
@@ -50,7 +65,10 @@ export async function onRequestGet({ request, env }) {
     if (view === 'saved') where.push('s.url_key IS NOT NULL');
     if (view === 'popular') where.push('p.title IS NOT NULL');
     if (view !== 'saved') where.push("COALESCE(NULLIF(a.published_at,''),a.fetched_at) >= datetime('now','-30 days')");
-    bindings.push(limit);
+    // Similar stories are collapsed after the query. Read extra rows so that
+    // deduplication does not make a requested 100/300 item page needlessly short.
+    const queryLimit = Math.min(limit * 3, 900);
+    bindings.push(queryLimit);
 
     const order = view === 'popular'
       ? "p.score DESC, COALESCE(NULLIF(a.published_at,''),a.fetched_at) DESC"
@@ -68,13 +86,13 @@ export async function onRequestGet({ request, env }) {
       ORDER BY ${order}
       LIMIT ?
     `).bind(...bindings).all();
-    const seenTitles = new Set();
+    const accepted = [];
     const items = (result.results || []).filter(item => {
-      const key = String(item.title || '').toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
-      if (!key || seenTitles.has(key)) return false;
-      seenTitles.add(key);
+      const first = String(item.summary || '').split('\n')[0].replace(/^\s*1[.)]\s*/, '');
+      if (accepted.some(old => similar(item.title, old.title) || similar(first, old.first, 0.72))) return false;
+      accepted.push({ title: item.title, first });
       return true;
-    });
+    }).slice(0, limit);
     return json({ ok: true, items });
   } catch (error) {
     return json({ ok: false, error: error.message }, 500);

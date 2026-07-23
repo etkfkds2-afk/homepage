@@ -18,7 +18,7 @@ jobs:
         run: |
           rm -rf dist
           mkdir dist
-          cp index.html dist/index.html
+          cp newsbrief.html dist/index.html
           cp newsbrief.html dist/newsbrief.html
 
       - name: Ensure Cloudflare Pages project
@@ -78,6 +78,9 @@ jobs:
   collect-news:
     needs: deploy
     if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    concurrency:
+      group: newsbrief-collector
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
       - name: Trigger NewsBrief collection

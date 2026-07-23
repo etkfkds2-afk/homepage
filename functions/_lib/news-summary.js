@@ -26,6 +26,8 @@ export function normalizeText(value) {
     .replace(/&amp;/gi, '&')
     .replace(/&quot;|&#34;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, num) => String.fromCodePoint(parseInt(num, 10)))
     .replace(/\r\n?/g, '\n')
     .replace(/[\t\f\v ]+/g, ' ')
     .replace(/ *\n */g, '\n')
@@ -128,6 +130,8 @@ const POISON_PATTERNS = [
   /(?:【\s*앵커\s*】|\[\s*앵커\s*\]|진행자\s*\))/i,
   /(?:관련기사|추천뉴스|많이\s*본\s*뉴스|함께\s*본\s*뉴스)/i,
   /(?:진짜\s*관전\s*포인트|오랜\s*격언|제3의\s*언어|인\s*셈이다|주목할\s*만하다|의미가\s*크다)/i,
+  /(?:의의가\s*있다|더\s*빠르게\s*이동하려고\s*발명한\s*기계가\s*자동차)/i,
+  /&#(?:x[0-9a-f]+|\d+);/i,
   /(?:가치가?\s*(?:더욱|한층)\s*높|사고방식과\s*(?:잘\s*)?부합)/i,
   /(?:\.{3,}|…$)/
 ];
