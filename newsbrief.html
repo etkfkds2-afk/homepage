@@ -17,6 +17,17 @@ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const fmt=v=>{const d=new Date(v);return Number.isNaN(+d)?'':new Intl.DateTimeFormat('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(d)};
 let toastTimer;
 function toast(message){clearTimeout(toastTimer);$('toast').textContent=message;$('toast').classList.add('show');toastTimer=setTimeout(()=>$('toast').classList.remove('show'),1800)}
+async function fetchJson(url,options){
+  const response=await fetch(url,options);
+  const type=(response.headers.get('content-type')||'').toLowerCase();
+  if(!type.includes('application/json')){
+    throw Error(response.ok?'서버 응답 형식이 올바르지 않습니다. 잠시 후 다시 시도해 주세요.':'서버가 잠시 응답하지 않습니다. 잠시 후 다시 시도해 주세요.');
+  }
+  let data;
+  try{data=await response.json()}catch{throw Error('서버 응답을 읽지 못했습니다. 잠시 후 다시 시도해 주세요.')}
+  if(!response.ok)throw Error(data?.error||'뉴스를 불러오지 못했습니다.');
+  return data;
+}
 function nav(){
   document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('on',b.dataset.view===state.mode));
   document.querySelectorAll('[data-hot]').forEach(b=>b.classList.toggle('on',b.dataset.hot===state.heroTopic));
@@ -67,25 +78,20 @@ async function load({silent=false}={}){
       const cardsUrl=badukHome
         ? '/api/news/articles?view=latest&category=%EB%B0%94%EB%91%91&limit=100&hours=168'
         : `/api/news/articles?view=home&limit=30&hours=168${common}`;
-      const [homeResponse,popularResponse]=await Promise.all([
-        fetch(cardsUrl),
-        fetch(heroUrl)
-      ]);
-      const [home,popular]=await Promise.all([homeResponse.json(),popularResponse.json()]);
+      const [home,popular]=await Promise.all([fetchJson(cardsUrl),fetchJson(heroUrl)]);
       if(requestId!==state.requestSeq)return;
-      if(!homeResponse.ok)throw Error(home.error);
-      state.heroItems=popularResponse.ok?(popular.items||[]):[];
+      state.heroItems=popular.items||[];
       const featured=new Set(state.heroItems.map(x=>x.url_key));
       state.items=(home.items||[]).filter(x=>!featured.has(x.url_key));
     }else{
-      const r=await fetch(`/api/news/articles?${p}`),d=await r.json();if(requestId!==state.requestSeq)return;if(!r.ok)throw Error(d.error);
+      const d=await fetchJson(`/api/news/articles?${p}`);if(requestId!==state.requestSeq)return;
       state.heroItems=[];state.items=d.items||[];
     }
     render()
   }
   catch(e){if(requestId===state.requestSeq&&!silent)$('cards').innerHTML=`<div class="empty">${esc(e.message||'불러오기 실패')}</div>`}
 }
-async function status(){try{const d=await fetch('/api/news/status').then(r=>r.json());$('status').textContent=d.ok?`${d.publishable||0}건 공개 · 자동 수집 정상`:'연결 오류'}catch{$('status').textContent='연결 오류'}}
+async function status(){try{const d=await fetchJson('/api/news/status');$('status').textContent=d.ok?`${d.publishable||0}건 공개 · 자동 수집 정상`:'연결 오류'}catch{$('status').textContent='연결 오류'}}
 document.addEventListener('click',e=>{
   const hot=e.target.dataset.hot;
   if(hot){state.heroTopic=hot;load({silent:true});return}
