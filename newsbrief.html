@@ -81,8 +81,7 @@ async function load({silent=false}={}){
       const [home,popular]=await Promise.all([fetchJson(cardsUrl),fetchJson(heroUrl)]);
       if(requestId!==state.requestSeq)return;
       state.heroItems=popular.items||[];
-      const featured=new Set(state.heroItems.map(x=>x.url_key));
-      state.items=(home.items||[]).filter(x=>!featured.has(x.url_key));
+      state.items=home.items||[];
     }else{
       const d=await fetchJson(`/api/news/articles?${p}`);if(requestId!==state.requestSeq)return;
       state.heroItems=[];state.items=d.items||[];
