@@ -11,7 +11,7 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script>
 const cats=['정치','경제','사회','생활/문화','세계','IT/과학'];
-const state={mode:'home',category:'',q:'',items:[],heroItems:[],heroTopic:'general',showBaduk:localStorage.getItem('newsbrief-show-baduk')!=='0',requestSeq:0};
+const state={mode:'home',category:'',q:'',items:[],heroItems:[],heroTopic:localStorage.getItem('newsbrief-show-baduk')!=='0'?'baduk':'general',showBaduk:localStorage.getItem('newsbrief-show-baduk')!=='0',requestSeq:0};
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=v=>{const d=new Date(v);return Number.isNaN(+d)?'':new Intl.DateTimeFormat('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(d)};
@@ -62,11 +62,15 @@ async function load({silent=false}={}){
   try{
     if(state.mode==='home'&&!state.q){
       const common=state.showBaduk?'':'&exclude_baduk=1';
-      const heroUrl=state.heroTopic==='baduk'
+      const badukHome=state.heroTopic==='baduk'&&state.showBaduk;
+      const heroUrl=badukHome
         ? '/api/news/articles?view=latest&category=%EB%B0%94%EB%91%91&limit=6&hours=168'
         : `/api/news/articles?view=popular&limit=6&hours=24${common}`;
+      const cardsUrl=badukHome
+        ? '/api/news/articles?view=latest&category=%EB%B0%94%EB%91%91&limit=100&hours=168'
+        : `/api/news/articles?view=home&limit=30&hours=168${common}`;
       const [homeResponse,popularResponse]=await Promise.all([
-        fetch(`/api/news/articles?view=home&limit=30&hours=168${common}`),
+        fetch(cardsUrl),
         fetch(heroUrl)
       ]);
       const [home,popular]=await Promise.all([homeResponse.json(),popularResponse.json()]);

@@ -144,7 +144,11 @@ export async function onRequestGet({ request, env }) {
       item.outlet = outletFor(item);
       if (!validateThreeLineSummary(item.summary, item.title)) continue;
       const first = String(item.summary || '').split('\n')[0].replace(/^\s*1[.)]\s*/, '');
-      const group = accepted.find(old => similar(item.title, old.title) || similar(first, old.first, 0.72));
+      // Baduk headlines legitimately repeat player and tournament names. Use a
+      // much stricter threshold so separate games are not collapsed together.
+      const titleThreshold = category === '바둑' ? 0.86 : 0.64;
+      const summaryThreshold = category === '바둑' ? 0.9 : 0.72;
+      const group = accepted.find(old => similar(item.title, old.title, titleThreshold) || similar(first, old.first, summaryThreshold));
       if (group) {
         if (!group.related.some(old => old.url_key === item.url_key)) {
           group.related.push({ url_key: item.url_key, url: item.url, title: item.title, outlet: item.outlet });
