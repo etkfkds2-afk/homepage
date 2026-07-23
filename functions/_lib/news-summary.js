@@ -63,6 +63,14 @@ function isNearDuplicate(a, b) {
   return common / Math.max(leftSet.size, rightSet.size, 1) >= 0.82;
 }
 
+function isTitleCopy(line, title) {
+  const left = comparisonKey(line);
+  const right = comparisonKey(title);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  return Math.abs(left.length - right.length) <= 6 && isNearDuplicate(line, title);
+}
+
 function splitCandidates(value) {
   let text = normalizeText(value);
   let cut = text.length;
@@ -91,7 +99,7 @@ function validCandidate(value, title) {
   const line = cleanCandidate(value);
   if (line.length < 18 || line.length > 220) return false;
   if (/(?:\.{3,}|…)$/.test(line)) return false;
-  if (title && isNearDuplicate(line, title)) return false;
+  if (title && isTitleCopy(line, title)) return false;
   if (/^(?:기자|특파원|앵커)\s*[=:]/.test(line)) return false;
   return true;
 }
@@ -144,7 +152,7 @@ export function validateThreeLineSummary(summary, title = '') {
   for (const line of lines) {
     if (line.length < 24 || line.length > 190) return false;
     if (POISON_PATTERNS.some(pattern => pattern.test(line)) || isJunkLine(line)) return false;
-    if (titleKey && isNearDuplicate(line, title)) return false;
+    if (titleKey && isTitleCopy(line, title)) return false;
     if (!/(?:다|니다)[.!]?$/u.test(line)) return false;
     for (const [open, close] of [["'", "'"], ['"', '"'], ['(', ')'], ['[', ']'], ['‘', '’'], ['“', '”']]) {
       const left = line.split(open).length - 1;

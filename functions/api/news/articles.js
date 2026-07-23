@@ -123,7 +123,7 @@ export async function onRequestGet({ request, env }) {
       FROM news_articles a
       LEFT JOIN news_saved s ON s.url_key=a.url_key AND s.user_id=?
       LEFT JOIN news_hidden h ON h.url_key=a.url_key AND h.user_id=?
-      LEFT JOIN news_popular_items p ON (p.url_key=a.url_key OR p.title=a.title) AND p.collected_at >= datetime('now','-2 days')
+      LEFT JOIN news_popular_items p ON (p.url_key=a.url_key OR p.title=a.title)
       WHERE ${where.join(' AND ')}
       ORDER BY ${order}
       LIMIT ?

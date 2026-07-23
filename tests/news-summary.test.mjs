@@ -22,6 +22,11 @@ test('제목 복붙과 중복 문장을 요약에 넣지 않는다', () => {
   assert.doesNotMatch(summary, /한국 대표팀이 결승에 진출했다/);
 });
 
+test('제목과 주제가 같아도 날짜와 결과가 추가된 사실 문장은 허용한다', () => {
+  const summary = '1) 신진서 9단은 21일 열린 최종 대국에서 카타고를 꺾고 2승 1패를 기록했다.\n2) 두 번째 대국에서는 안정적인 운영으로 승리를 거뒀다고 밝혔다.\n3) 마지막 대국은 221수 만에 흑의 승리로 끝났다고 전했다.';
+  assert.equal(validateThreeLineSummary(summary, '신진서, 카타고에 2승 1패 역전승'), true);
+});
+
 test('짧은 정상 기사는 억지로 세 줄을 만들지 않는다', () => {
   const result = sanitizeStoredSummary({
     title: '지역 축제가 주말에 열린다',

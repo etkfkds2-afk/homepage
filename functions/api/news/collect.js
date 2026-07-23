@@ -247,7 +247,10 @@ async function collectArchivedTop(slot) {
     for (const [sid, category] of [['100','정치'],['101','경제'],['102','사회'],['103','생활/문화'],['104','세계']]) {
       const url = `https://news.naver.com/main/ranking/popularDay.naver?mid=etc&sid1=${sid}&date=${ymd}`;
       const top = (await popularPage(url, 'NAVER'))[0];
-      if (top) rows.push({ category, source: 'NAVER', item: { title: top.title, link: top.href, originallink: top.href, description: '', pubDate: date.toISOString() } });
+      if (top) rows.push({
+        category, source: 'NAVER', archiveScore: 70 - (baseOffset + extra),
+        item: { title: top.title, link: top.href, originallink: top.href, description: '', pubDate: date.toISOString() }
+      });
     }
   }
   return rows;
@@ -280,7 +283,7 @@ async function collect(env, { backfill = false } = {}) {
   if (poisoned.length) await env.DB.batch(poisoned.map(row => env.DB.prepare("UPDATE news_articles SET summary='',summary_quality='none' WHERE id=?").bind(row.id)));
   const retryRows = await env.DB.prepare(`SELECT a.id,a.url_key,a.title,a.raw_summary,a.body_text FROM news_articles a
     LEFT JOIN news_summary_attempts f ON f.url_key=a.url_key
-    WHERE a.summary_quality='none' AND length(a.body_text)>=300 AND COALESCE(f.attempts,0)<3
+    WHERE a.summary_quality='none' AND length(a.body_text)>=300 AND COALESCE(f.attempts,0)<6
     ORDER BY CASE WHEN a.category='바둑' THEN 0 ELSE 1 END, a.fetched_at DESC LIMIT 16`).all();
   for (const row of retryRows.results || []) {
     if (isRejectedTitle(row.title)) continue;
@@ -326,7 +329,15 @@ async function collect(env, { backfill = false } = {}) {
   }
   if (backfill) {
     try {
-      candidates.push(...await collectArchivedTop(slot));
+      const archived = await collectArchivedTop(slot);
+      candidates.push(...archived);
+      for (const row of archived) {
+        const key = await sha256(canonicalUrl(row.item.originallink || row.item.link));
+        await env.DB.prepare(`INSERT INTO news_popular_items(title,url_key,score,rank,source,collected_at)
+          VALUES(?,?,?,1,'NAVER',CURRENT_TIMESTAMP) ON CONFLICT(title) DO UPDATE SET
+          url_key=excluded.url_key,score=MAX(news_popular_items.score,excluded.score),collected_at=CURRENT_TIMESTAMP`)
+          .bind(cleanTitle(row.item.title), key, row.archiveScore).run();
+      }
       diagnostics.archive_candidates = candidates.length;
     } catch (error) {
       diagnostics.archive_error = String(error?.message || error).slice(0, 120);
