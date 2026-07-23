@@ -67,4 +67,6 @@ test('신문 미리보기와 증시 묶음형 제목을 거부한다', () => {
   assert.equal(validateThreeLineSummary(summary, '[미리보는 이데일리 신문]프로그램 매매 폭증'), false);
   assert.equal(validateThreeLineSummary(summary, '[아주증시포커스] 중국 반도체기업들 IPO 러시'), false);
   assert.equal(validateThreeLineSummary(summary, '뉴욕증시 반등 이끈 반도체주[뉴스 새벽배송]'), false);
+  assert.equal(validateThreeLineSummary(summary, '미·이란 충돌에 증시 하락[ 뉴스 ...'), false);
+  assert.equal(validateThreeLineSummary(summary, '[스포츠박사 기자의 스포츠용어 산책 1852] 화점'), false);
 });
