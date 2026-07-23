@@ -1,4 +1,5 @@
 import { ensureNewsDb, json, userId } from '../../_lib/news-db.js';
+import { normalizeText, validateThreeLineSummary } from '../../_lib/news-summary.js';
 
 const CATEGORIES = new Set(['정치', '경제', '사회', '생활/문화', '세계', 'IT/과학', '바둑', '기타']);
 
@@ -88,6 +89,9 @@ export async function onRequestGet({ request, env }) {
     `).bind(...bindings).all();
     const accepted = [];
     const items = (result.results || []).filter(item => {
+      item.summary = normalizeText(String(item.summary || '').replace(/([1-3][.)])\s*&#10;/gi, '$1 '));
+      item.image_url = normalizeText(item.image_url);
+      if (!validateThreeLineSummary(item.summary, item.title)) return false;
       const first = String(item.summary || '').split('\n')[0].replace(/^\s*1[.)]\s*/, '');
       if (accepted.some(old => similar(item.title, old.title) || similar(first, old.first, 0.72))) return false;
       accepted.push({ title: item.title, first });
