@@ -6,9 +6,9 @@ import {
 
 const SEARCHES = [
   ['바둑', '바둑 대회 프로기사'],
-  ['정치', '정치 주요 뉴스'], ['경제', '경제 주요 뉴스'], ['사회', '사회 주요 뉴스'],
-  ['생활/문화', '생활 문화 주요 뉴스'], ['세계', '세계 주요 뉴스'],
-  ['IT/과학', 'IT 과학 주요 뉴스']
+  ['정치', '정치'], ['경제', '경제'], ['사회', '사회'],
+  ['생활/문화', '생활 문화'], ['세계', '국제'],
+  ['IT/과학', '과학 기술']
 ];
 
 const BADUK_SEARCHES = [
@@ -357,12 +357,13 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
       const start = category === '바둑' ? pageBand * 20 + 1 : (backfill ? backfillStart : 1);
       const display = category === '바둑' ? 20 : (backfill ? 10 : 5);
       const items = await naverSearch(env, effectiveQuery, start, display);
-      const take = category === '바둑' ? (backfill ? 5 : 2) : (backfill ? 2 : 1);
-      for (const item of items.slice(0, take)) candidates.push({ category, item, source: 'NAVER' });
+      const naverTake = category === '바둑' ? (backfill ? 5 : 2) : (backfill ? 2 : 3);
+      for (const item of items.slice(0, naverTake)) candidates.push({ category, item, source: 'NAVER' });
       try {
         const page = category === '바둑' ? pageBand + 1 : (backfill ? (slot % 10) * 5 + 1 : 1);
         const kakaoItems = await kakaoSearch(env, effectiveQuery, page, category === '바둑' ? 20 : (backfill ? 10 : 5));
-        for (const item of kakaoItems.slice(0, take)) candidates.push({ category, item, source: 'KAKAO' });
+        const kakaoTake = category === '바둑' ? (backfill ? 5 : 2) : (backfill ? 2 : 1);
+        for (const item of kakaoItems.slice(0, kakaoTake)) candidates.push({ category, item, source: 'KAKAO' });
       } catch (error) {
         diagnostics.kakao_error = String(error?.message || error).slice(0, 120);
       }
@@ -371,7 +372,7 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
   // Google News is discovery-only: resolve each headline through the licensed
   // Naver API, then fetch and validate the real article like every other item.
   // Never expose a Google wrapper or its short RSS description as a summary.
-  for (const discovery of googleDiscoveries.slice(0, backfill ? 40 : 16)) {
+  for (const discovery of googleDiscoveries.slice(0, backfill ? 40 : 2)) {
     const discoveredTitle = cleanTitle(discovery?.title || '');
     if (!discoveredTitle || isRejectedTitle(discoveredTitle)) continue;
     try {
