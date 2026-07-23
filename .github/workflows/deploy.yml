@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      backfill:
+        description: '최근 한 달 백필과 바둑 요약 복구 실행'
+        required: false
+        default: false
+        type: boolean
   schedule:
     # GitHub may delay scheduled jobs during busy periods. Running every 15
     # minutes gives the collector another chance without duplicating articles;
@@ -91,7 +97,7 @@ jobs:
       - name: Discover Google News and trigger collection
         env:
           NEWSBRIEF_COLLECT_TOKEN: ${{ secrets.NEWSBRIEF_COLLECT_TOKEN }}
-          NEWSBRIEF_BACKFILL: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+          NEWSBRIEF_BACKFILL: ${{ github.event_name == 'workflow_dispatch' && inputs.backfill && '1' || '0' }}
         run: node scripts/google-news-discovery.mjs
 
       - name: Trigger NewsBrief collection
@@ -99,16 +105,16 @@ jobs:
           NEWSBRIEF_COLLECT_TOKEN: ${{ secrets.NEWSBRIEF_COLLECT_TOKEN }}
         run: |
           runs=0
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then runs=9; fi
+          if [ "${{ inputs.backfill }}" = "true" ]; then runs=9; fi
           for i in $(seq 1 "$runs"); do
             endpoint="https://newsbrief-etkfkds2.pages.dev/api/news/collect"
-            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then endpoint="${endpoint}?backfill=1"; fi
+            if [ "${{ inputs.backfill }}" = "true" ]; then endpoint="${endpoint}?backfill=1"; fi
             curl --fail-with-body --retry 3 --max-time 240 \
               -X POST \
               -H "Authorization: Bearer ${NEWSBRIEF_COLLECT_TOKEN}" \
               "$endpoint"
           done
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ inputs.backfill }}" = "true" ]; then
             for i in $(seq 1 5); do
               curl --fail-with-body --retry 3 --max-time 240 \
                 -X POST \
