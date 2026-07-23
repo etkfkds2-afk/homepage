@@ -88,6 +88,14 @@ async function collect(env) {
   const stored = await env.DB.prepare('SELECT id,title,summary FROM news_articles').all();
   const poisoned = (stored.results || []).filter(row => GENERIC_TITLES.has(row.title) || !validateThreeLineSummary(row.summary, row.title));
   if (poisoned.length) await env.DB.batch(poisoned.map(row => env.DB.prepare("UPDATE news_articles SET summary='',summary_quality='none' WHERE id=?").bind(row.id)));
+  const retryRows = await env.DB.prepare(`SELECT id,title,raw_summary,body_text FROM news_articles
+    WHERE summary_quality='none' AND length(body_text)>=300 ORDER BY fetched_at DESC LIMIT 8`).all();
+  for (const row of retryRows.results || []) {
+    const repaired = await makeBestSummary(env, { title: row.title, rawSummary: row.raw_summary, body: row.body_text });
+    if (validateThreeLineSummary(repaired, row.title)) {
+      await env.DB.prepare("UPDATE news_articles SET summary=?,summary_quality='full' WHERE id=?").bind(repaired, row.id).run();
+    }
+  }
   const candidates = [];
   for (const [category, query] of SEARCHES) {
     const items = await naverSearch(env, query);

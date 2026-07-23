@@ -50,3 +50,8 @@ test('오염되거나 세 줄이 아닌 요약은 저장을 거부한다', () =>
   assert.equal(validateThreeLineSummary('1) 한 줄뿐인 요약 문장으로 저장하면 안 된다.', '제목'), false);
   assert.equal(validateThreeLineSummary('1) 정부는 지원 정책의 세부 기준을 오늘 공개했다.\n2) 지원 대상은 다음 달부터 전국으로 확대될 예정이다.\n3) 관계 부처는 현장 의견을 반영해 후속 대책을 마련한다.', '새 지원 정책 발표'), true);
 });
+
+test('해설성 문장과 깨진 따옴표를 거부한다', () => {
+  assert.equal(validateThreeLineSummary("1) 이번 행사의 진짜 관전 포인트다.\n2) 바둑판에 제3의 언어가 더해진 셈이다.\n3) 주최사는 프로그램을 제공했다고 밝혔다.", '행사'), false);
+  assert.equal(validateThreeLineSummary("1) 협회는 아시아 각국의 현안을 정리했다고 밝혔다.\n2) 한국'엄마와 아빠 대신 보호자를 권고했다.\n3) 교육청은 논란 이후 권고안을 철회했다고 밝혔다.", '교육청 권고'), false);
+});

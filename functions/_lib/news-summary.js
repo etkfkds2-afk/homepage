@@ -122,7 +122,9 @@ const POISON_PATTERNS = [
   /(?:송고\s*\d{4}|입력\s*\d{4}|수정\s*\d{4}|생방송\s*뉴스|FM\s*\d|완독\s*약)/i,
   /(?:텔레그램\s*채널|구독\s*상품|내구독|보관함|하이라이트\/메모|제보로\s*함께)/i,
   /(?:주요\s*뉴스를\s*전해|뉴스를\s*모아|뉴스\s*서비스를\s*제공|놓쳐버린\s*주요\s*뉴스)/i,
+  /(?:주요\s*뉴스와\s*현안을\s*정리|오늘의\s*주요\s*뉴스|뉴스\s*브리핑)/i,
   /(?:관련기사|추천뉴스|많이\s*본\s*뉴스|함께\s*본\s*뉴스)/i,
+  /(?:진짜\s*관전\s*포인트|오랜\s*격언|제3의\s*언어|인\s*셈이다|주목할\s*만하다|의미가\s*크다)/i,
   /(?:\.{3,}|…$)/
 ];
 
@@ -134,6 +136,12 @@ export function validateThreeLineSummary(summary, title = '') {
     if (line.length < 24 || line.length > 190) return false;
     if (POISON_PATTERNS.some(pattern => pattern.test(line)) || isJunkLine(line)) return false;
     if (titleKey && isNearDuplicate(line, title)) return false;
+    if (!/(?:다|요|니다)[.!?]?$/u.test(line)) return false;
+    for (const [open, close] of [["'", "'"], ['"', '"'], ['(', ')'], ['[', ']'], ['‘', '’'], ['“', '”']]) {
+      const left = line.split(open).length - 1;
+      const right = open === close ? left : line.split(close).length - 1;
+      if (open === close ? left % 2 !== 0 : left !== right) return false;
+    }
   }
   return !isNearDuplicate(lines[0], lines[1]) && !isNearDuplicate(lines[0], lines[2]) && !isNearDuplicate(lines[1], lines[2]);
 }
