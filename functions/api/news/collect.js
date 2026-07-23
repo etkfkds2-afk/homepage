@@ -255,10 +255,12 @@ async function collectArchivedTop(slot) {
 
 async function collect(env, { backfill = false } = {}) {
   const diagnostics = { mode: backfill ? 'backfill' : 'scheduled', retry_attempted: 0, retry_repaired: 0, samples: [] };
-  let aiRemaining = 2;
-  const summarize = async (payload, detail) => {
-    const useAi = aiRemaining > 0;
-    if (useAi) aiRemaining -= 1;
+  let aiRetryRemaining = 1;
+  let aiNewRemaining = 1;
+  const summarize = async (payload, detail, purpose = 'new') => {
+    const useAi = purpose === 'retry' ? aiRetryRemaining > 0 : aiNewRemaining > 0;
+    if (useAi && purpose === 'retry') aiRetryRemaining -= 1;
+    if (useAi && purpose !== 'retry') aiNewRemaining -= 1;
     return makeBestSummary(useAi ? env : { AI: undefined }, payload, detail);
   };
   const stored = await env.DB.prepare('SELECT id,title,summary,body_text,category FROM news_articles').all();
@@ -283,7 +285,7 @@ async function collect(env, { backfill = false } = {}) {
   for (const row of retryRows.results || []) {
     if (isRejectedTitle(row.title)) continue;
     const detail = {};
-    const repaired = await summarize({ title: row.title, rawSummary: row.raw_summary, body: row.body_text }, detail);
+    const repaired = await summarize({ title: row.title, rawSummary: row.raw_summary, body: row.body_text }, detail, 'retry');
     diagnostics.retry_attempted += 1;
     if (diagnostics.samples.length < 2) diagnostics.samples.push({ title: row.title, ...detail });
     if (validateThreeLineSummary(repaired, row.title)) {
@@ -374,7 +376,7 @@ async function collect(env, { backfill = false } = {}) {
         const fetchUrl = /^https?:\/\/(?:n\.)?news\.naver\.com\//i.test(item.link || '') ? item.link : url;
         let article = await fetchArticleText(fetchUrl);
         if (article.body.length < 300 && fetchUrl !== url) article = await fetchArticleText(url);
-        const repaired = await summarize({ title, rawSummary: stripHtml(item.description) || exists.raw_summary, body: article.body || exists.body_text });
+        const repaired = await summarize({ title, rawSummary: stripHtml(item.description) || exists.raw_summary, body: article.body || exists.body_text }, null, 'retry');
         const valid = validateThreeLineSummary(repaired, title);
         await env.DB.prepare(`UPDATE news_articles SET
           title=?,
