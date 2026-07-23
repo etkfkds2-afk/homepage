@@ -114,7 +114,7 @@ async function naverSearch(env, query, start = 1) {
 
 async function kakaoSearch(env, query, page = 1) {
   if (!env.KAKAO_REST_API_KEY) return [];
-  const endpoint = new URL('https://dapi.kakao.com/v2/search/news');
+  const endpoint = new URL('https://dapi.kakao.com/v2/search/web');
   endpoint.searchParams.set('query', query);
   endpoint.searchParams.set('size', '5');
   endpoint.searchParams.set('page', String(page));
@@ -183,11 +183,19 @@ async function collect(env) {
   for (const [category, query] of SEARCHES) {
     const items = await naverSearch(env, query, category === '바둑' ? backfillStart : 1);
     for (const item of items.slice(0, 2)) candidates.push({ category, item, source: 'NAVER' });
-    const kakaoItems = await kakaoSearch(env, query, category === '바둑' ? (slot % 10) + 1 : 1);
-    for (const item of kakaoItems.slice(0, 2)) candidates.push({ category, item, source: 'KAKAO' });
+    try {
+      const kakaoItems = await kakaoSearch(env, query, category === '바둑' ? (slot % 10) + 1 : 1);
+      for (const item of kakaoItems.slice(0, 2)) candidates.push({ category, item, source: 'KAKAO' });
+    } catch (error) {
+      diagnostics.kakao_error = String(error?.message || error).slice(0, 120);
+    }
   }
   const badukQuery = BADUK_SEARCHES[slot % BADUK_SEARCHES.length];
-  for (const item of (await googleNewsSearch(badukQuery)).slice(0, 3)) candidates.push({ category: '바둑', item, source: 'GOOGLE' });
+  try {
+    for (const item of (await googleNewsSearch(badukQuery)).slice(0, 3)) candidates.push({ category: '바둑', item, source: 'GOOGLE' });
+  } catch (error) {
+    diagnostics.google_error = String(error?.message || error).slice(0, 120);
+  }
 
   let inserted = 0;
   for (const { category, item, source } of candidates) {
