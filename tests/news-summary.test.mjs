@@ -85,6 +85,8 @@ test('기사 글자크기 UI와 광고성 제목을 거부한다', () => {
 test('HTML 숫자 엔티티를 실제 줄바꿈으로 정규화한다', () => {
   assert.equal(normalizeText('첫 문장.&#10;둘째 문장.'), '첫 문장.\n둘째 문장.');
   assert.equal(normalizeText('&amp;lt;설국&amp;gt;'), '<설국>');
+  assert.equal(normalizeText('초&middot;중&middot;고등학생'), '초·중·고등학생');
+  assert.equal(normalizeText("바둑 협회가 '학생 바둑대회 '가 문성고등 학교에서 열린다."), "바둑협회가 '학생 바둑대회'가 문성고등학교에서 열린다.");
 });
 
 test('칼럼·사설·기고는 일반 뉴스 요약에서 제외한다', () => {

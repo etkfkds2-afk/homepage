@@ -265,10 +265,11 @@ async function collectArchivedTop(slot) {
 
 async function collect(env, { backfill = false, repair = false, googleDiscoveries = [] } = {}) {
   const diagnostics = { mode: backfill ? 'backfill' : 'scheduled', retry_attempted: 0, retry_repaired: 0, samples: [] };
-  let aiRetryRemaining = repair ? 12 : (backfill ? 6 : 1);
-  let aiNewRemaining = repair ? 0 : 1;
+  let aiRetryRemaining = repair ? 12 : (backfill ? 6 : 2);
+  let aiNewRemaining = repair ? 0 : (backfill ? 6 : 3);
   const summarize = async (payload, detail, purpose = 'new') => {
-    const useAi = purpose === 'retry' ? aiRetryRemaining > 0 : aiNewRemaining > 0;
+    const useAi = payload.category === '바둑'
+      && (purpose === 'retry' ? aiRetryRemaining > 0 : aiNewRemaining > 0);
     if (useAi && purpose === 'retry') aiRetryRemaining -= 1;
     if (useAi && purpose !== 'retry') aiNewRemaining -= 1;
     return makeBestSummary(useAi ? env : { AI: undefined }, payload, detail);
@@ -305,7 +306,7 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
     diagnostics.body_recrawl_attempted = (weakRows.results || []).length;
     diagnostics.body_recrawl_recovered = recovered.reduce((sum, value) => sum + value, 0);
   }
-  const retryRows = await env.DB.prepare(`SELECT a.id,a.url_key,a.title,a.raw_summary,a.body_text FROM news_articles a
+  const retryRows = await env.DB.prepare(`SELECT a.id,a.url_key,a.title,a.raw_summary,a.body_text,a.category FROM news_articles a
     LEFT JOIN news_summary_attempts f ON f.url_key=a.url_key
     WHERE a.summary_quality='none' AND length(a.body_text)>=300 AND COALESCE(f.attempts,0)<?
     ORDER BY CASE WHEN a.category='바둑' THEN 0 ELSE 1 END, length(a.body_text) DESC, a.fetched_at DESC LIMIT ?`)
@@ -313,7 +314,7 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
   for (const row of retryRows.results || []) {
     if (isRejectedTitle(row.title)) continue;
     const detail = {};
-    const repaired = await summarize({ title: row.title, rawSummary: row.raw_summary, body: row.body_text }, detail, 'retry');
+    const repaired = await summarize({ title: row.title, rawSummary: row.raw_summary, body: row.body_text, category: row.category }, detail, 'retry');
     diagnostics.retry_attempted += 1;
     if (diagnostics.samples.length < 2) diagnostics.samples.push({ title: row.title, ...detail });
     if (validateThreeLineSummary(repaired, row.title)) {
@@ -441,7 +442,7 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
         const fetchUrl = /^https?:\/\/(?:n\.)?news\.naver\.com\//i.test(item.link || '') ? item.link : url;
         let article = await fetchArticleText(fetchUrl);
         if (article.body.length < 300 && fetchUrl !== url) article = await fetchArticleText(url);
-        const repaired = await summarize({ title, rawSummary: stripHtml(item.description) || exists.raw_summary, body: article.body || exists.body_text }, null, 'retry');
+        const repaired = await summarize({ title, rawSummary: stripHtml(item.description) || exists.raw_summary, body: article.body || exists.body_text, category }, null, 'retry');
         const valid = validateThreeLineSummary(repaired, title);
         await env.DB.prepare(`UPDATE news_articles SET
           title=?,
@@ -464,7 +465,7 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
     // three-line card when the destination page is missing or cannot be read.
     if (body.length < 180) return 0;
     const finalCategory = classify(category, title, body || rawSummary);
-    const summary = await summarize({ title, rawSummary, body });
+    const summary = await summarize({ title, rawSummary, body, category: finalCategory });
     const validSummary = validateThreeLineSummary(summary, title);
 
     await env.DB.prepare(`

@@ -1,5 +1,11 @@
 const NUMBERING = /^\s*(?:\d{1,2}[.)]|[①-⑳]|[-•▪▶])\s*/u;
 
+const HTML_ENTITIES = {
+  nbsp: ' ', middot: '·', bull: '•', ndash: '–', mdash: '—', hellip: '…',
+  lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”', laquo: '«', raquo: '»',
+  copy: '©', reg: '®', trade: '™'
+};
+
 const CUT_MARKERS = [
   '함께 찾은 검색어', '이 시각 추천뉴스', '많이 본 뉴스', '관련기사',
   '기사 더보기', '해당 언론사로 이동합니다', '뉴시스에서 직접 확인하세요'
@@ -26,6 +32,7 @@ export function normalizeText(value) {
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
+    .replace(/&([a-z][a-z0-9]+);/gi, (match, name) => HTML_ENTITIES[name.toLowerCase()] ?? match)
     .replace(/&quot;|&#34;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'")
     .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
@@ -34,6 +41,9 @@ export function normalizeText(value) {
     .replace(/[\t\f\v ]+/g, ' ')
     .replace(/ *\n */g, '\n')
     .replace(/\n{3,}/g, '\n\n')
+    .replace(/\s+(['’”])(?=[은는이가을를와과의에도로](?:\s|[.,]))/gu, '$1')
+    .replace(/([가-힣]+(?:초등|중|고등))\s+학교/gu, '$1학교')
+    .replace(/바둑\s+협회/gu, '바둑협회')
     .trim();
 }
 
@@ -143,6 +153,7 @@ const POISON_PATTERNS = [
   /(?:의의가\s*있다|의미를\s*(?:더했다|부여했다)|더\s*빠르게\s*이동하려고\s*발명한\s*기계가\s*자동차)/i,
   /&#(?:x[0-9a-f]+|\d+);/i,
   /(?:가치가?\s*(?:더욱|한층)\s*높|사고방식과\s*(?:잘\s*)?부합)/i,
+  /&[a-z][a-z0-9]+;/i,
   /(?:\.{3,}|…$)/
 ];
 
