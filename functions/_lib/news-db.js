@@ -43,6 +43,10 @@ CREATE TABLE IF NOT EXISTS news_popularity (
   rank INTEGER NOT NULL DEFAULT 0,
   source TEXT NOT NULL DEFAULT '',
   collected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS news_state (
+  key TEXT PRIMARY KEY,
+  value INTEGER NOT NULL DEFAULT 0
 );`;
 
 export function json(data, status = 200) {

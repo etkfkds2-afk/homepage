@@ -211,19 +211,22 @@ async function collect(env) {
     }
   }
   const candidates = [];
-  const slot = Math.floor(Date.now() / 1800000);
+  const cursorRow = await env.DB.prepare("SELECT value FROM news_state WHERE key='backfill_cursor'").first();
+  const slot = Number(cursorRow?.value || 0);
+  await env.DB.prepare("INSERT INTO news_state(key,value) VALUES('backfill_cursor',1) ON CONFLICT(key) DO UPDATE SET value=value+1").run();
   const backfillStart = (slot % 20) * 5 + 1;
+  const badukQuery = BADUK_SEARCHES[slot % BADUK_SEARCHES.length];
   for (const [category, query] of SEARCHES) {
-    const items = await naverSearch(env, query, category === '바둑' ? backfillStart : 1);
-    for (const item of items.slice(0, 1)) candidates.push({ category, item, source: 'NAVER' });
+    const effectiveQuery = category === '바둑' ? badukQuery : query;
+    const items = await naverSearch(env, effectiveQuery, category === '바둑' ? backfillStart : 1);
+    for (const item of items.slice(0, category === '바둑' ? 2 : 1)) candidates.push({ category, item, source: 'NAVER' });
     try {
-      const kakaoItems = await kakaoSearch(env, query, category === '바둑' ? (slot % 10) + 1 : 1);
-      for (const item of kakaoItems.slice(0, 1)) candidates.push({ category, item, source: 'KAKAO' });
+      const kakaoItems = await kakaoSearch(env, effectiveQuery, category === '바둑' ? (slot % 10) + 1 : 1);
+      for (const item of kakaoItems.slice(0, category === '바둑' ? 2 : 1)) candidates.push({ category, item, source: 'KAKAO' });
     } catch (error) {
       diagnostics.kakao_error = String(error?.message || error).slice(0, 120);
     }
   }
-  const badukQuery = BADUK_SEARCHES[slot % BADUK_SEARCHES.length];
   try {
     for (const item of (await googleNewsSearch(badukQuery)).slice(0, 3)) candidates.push({ category: '바둑', item, source: 'GOOGLE' });
   } catch (error) {
