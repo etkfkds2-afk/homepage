@@ -121,6 +121,7 @@ const POISON_PATTERNS = [
   /(?:var\s+\w+|function\s*\(|=>|updateLive|setTimeout|\bconst\s+|\blet\s+)/i,
   /(?:송고\s*\d{4}|입력\s*\d{4}|수정\s*\d{4}|생방송\s*뉴스|FM\s*\d|완독\s*약)/i,
   /(?:텔레그램\s*채널|구독\s*상품|내구독|보관함|하이라이트\/메모|제보로\s*함께)/i,
+  /(?:기사의?\s*본문\s*내용|글자\s*크기(?:로)?\s*변경|본문\s*글씨\s*크기|인쇄하기|공유하기)/i,
   /(?:주요\s*뉴스를\s*전해|뉴스를\s*모아|뉴스\s*서비스를\s*제공|놓쳐버린\s*주요\s*뉴스)/i,
   /(?:주요\s*뉴스와\s*현안을\s*정리|오늘의\s*주요\s*뉴스|뉴스\s*브리핑)/i,
   /(?:주요\s*뉴스\s*(?:와|및)?\s*이슈를\s*모아|한\s*주간\s*세계\s*주요\s*뉴스|바쁘고\s*소란스러운\s*나날)/i,
@@ -152,5 +153,6 @@ export function validateThreeLineSummary(summary, title = '') {
 
 export function isRejectedTitle(title = '') {
   if (/�/.test(title) || (String(title).match(/\?/g) || []).length >= 5) return true;
+  if (/(?:시세\s*조회로|현명한\s*투자하세요|신청\s*및\s*.*(?:환급|상세)\s*안내|자동차월드)/i.test(title)) return true;
   return /(?:퇴근길\s*이슈|뉴스\s*브리핑|뉴스\s*잇\s*\(|뉴스\s*바이트|모닝픽|주요\s*뉴스\s*]|주요뉴스\s*…|미리보는\s*.*신문|증시\s*포커스|증시포커스|뉴스\s*새벽배송|\[\s*뉴스\s*(?:\.{2,}|…)|스포츠용어\s*산책)/i.test(title);
 }

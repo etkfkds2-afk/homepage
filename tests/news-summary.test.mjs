@@ -70,3 +70,9 @@ test('신문 미리보기와 증시 묶음형 제목을 거부한다', () => {
   assert.equal(validateThreeLineSummary(summary, '미·이란 충돌에 증시 하락[ 뉴스 ...'), false);
   assert.equal(validateThreeLineSummary(summary, '[스포츠박사 기자의 스포츠용어 산책 1852] 화점'), false);
 });
+
+test('기사 글자크기 UI와 광고성 제목을 거부한다', () => {
+  const polluted = '1) 카타고는 오픈소스 바둑 인공지능으로 연구와 훈련에 활용된다.\n2) 신진서 9단은 카타고와 세 차례 대국을 진행했다고 밝혔다.\n3) 기사의 본문 내용은 이 글자크기로 변경됩니다.';
+  assert.equal(validateThreeLineSummary(polluted, '신진서, 바둑 AI에 역전승'), false);
+  assert.equal(validateThreeLineSummary(polluted.replace('기사의 본문 내용은 이 글자크기로 변경됩니다.', '정상적인 경기 결과를 구체적으로 설명했다고 밝혔다.'), '2026 고창 반값여행 신청 및 숙소 환급 상세 안내'), false);
+});

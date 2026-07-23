@@ -18,7 +18,21 @@ const BADUK_SEARCHES = [
 
 const GENERIC_TITLES = new Set(['이 시각 주요 뉴스', '오늘의 주요 뉴스', '주요 뉴스', '뉴스 브리핑']);
 
-const BODY_JUNK = /(?:무단전재|재배포\s*금지|저작권자|구독|로그인|회원가입|제보|관련기사|추천뉴스|많이\s*본\s*뉴스|기사제공|기자\s*[A-Z0-9._%+-]+@)/i;
+const BODY_JUNK = /(?:무단전재|재배포\s*금지|저작권자|구독|로그인|회원가입|제보|관련기사|추천뉴스|많이\s*본\s*뉴스|기사제공|기자\s*[A-Z0-9._%+-]+@|기사의?\s*본문\s*내용|글자\s*크기|인쇄하기|공유하기)/i;
+
+function classify(category, title, body = '') {
+  const text = `${title} ${body.slice(0, 800)}`;
+  if (/(?:바둑|대국|기전|한국기원|신진서|최정\s*9단|카타고)/i.test(text)) return '바둑';
+  const rules = [
+    ['정치', /(?:대통령|국회|국회의원|민주당|국민의힘|선거|정당|총리|장관|외교부|정부\s*정책)/],
+    ['경제', /(?:증시|주가|금리|환율|기업|투자|금융|부동산|아파트|원유|산업|수출|매출|순이익)/],
+    ['IT/과학', /(?:인공지능|\bAI\b|반도체|과학|로봇|스마트폰|소프트웨어|클라우드|우주)/i],
+    ['세계', /(?:미국|중국|일본|러시아|이란|유럽|중동|트럼프|해외|국제사회)/],
+    ['생활/문화', /(?:여행|축제|문화|영화|공연|음식|건강|날씨|관광|스포츠)/],
+    ['사회', /(?:경찰|검찰|법원|사건|사고|교육|학교|재판|수사|지역사회)/]
+  ];
+  return rules.find(([, pattern]) => pattern.test(text))?.[0] || category;
+}
 
 function stripHtml(value) {
   return normalizeText(String(value || '')
@@ -217,7 +231,11 @@ async function collect(env) {
     if (useAi) aiRemaining -= 1;
     return makeBestSummary(useAi ? env : { AI: undefined }, payload, detail);
   };
-  const stored = await env.DB.prepare('SELECT id,title,summary FROM news_articles').all();
+  const stored = await env.DB.prepare('SELECT id,title,summary,body_text,category FROM news_articles').all();
+  for (const row of stored.results || []) {
+    const fixedCategory = classify(row.category, row.title, row.body_text);
+    if (fixedCategory !== row.category) await env.DB.prepare('UPDATE news_articles SET category=? WHERE id=?').bind(fixedCategory, row.id).run();
+  }
   const mislabeled = await env.DB.prepare("SELECT id,url,source,press FROM news_articles WHERE source IN ('NAVER','KAKAO','GOOGLE')").all();
   for (const row of mislabeled.results || []) {
     if (row.source === 'KAKAO' && !allowedCandidate(row.url, 'KAKAO')) {
@@ -321,6 +339,7 @@ async function collect(env) {
     let article = await fetchArticleText(fetchUrl);
     if (article.body.length < 300 && fetchUrl !== url) article = await fetchArticleText(url);
     const body = article.body;
+    const finalCategory = classify(category, title, body || rawSummary);
     const summary = await summarize({ title, rawSummary, body });
     const validSummary = validateThreeLineSummary(summary, title);
 
@@ -335,7 +354,7 @@ async function collect(env) {
         summary=CASE WHEN length(excluded.summary)>length(news_articles.summary) THEN excluded.summary ELSE news_articles.summary END,
         summary_quality=excluded.summary_quality
     `).bind(
-      url, urlKey, title, articleSource(url, source, press), press, category, publishedAt, rawSummary,
+      url, urlKey, title, articleSource(url, source, press), press, finalCategory, publishedAt, rawSummary,
       body, validSummary ? summary : '', validSummary ? 'full' : 'none', article.image
     ).run();
     inserted += 1;
