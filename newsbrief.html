@@ -5,12 +5,12 @@
 .title{color:var(--text)}
 </style></head><body>
 <header class="top"><div><div class="brand">NewsBrief</div><div class="tagline">최근 한 달의 뉴스를 모아,<br>원문에 근거한 세 문장으로 정리합니다.</div></div><div class="controls"><div class="modebar"><button class="pill on" data-view="home">홈</button><button class="pill" data-view="latest">최신순</button><button class="pill" data-view="popular">인기순</button><button class="pill" data-view="saved">저장</button><button class="pill baduk" data-view="baduk">바둑</button><button class="pill setting" id="topicToggle" type="button">바둑 숨기기</button><span class="status" id="status">연결 확인 중</span></div><div class="filterbar" id="categories"></div><form class="searchbar" id="search"><input id="query" placeholder="최근 한 달 뉴스 검색" aria-label="뉴스 검색"><button>검색</button></form></div></header>
-<section class="homehero" id="hero" hidden></section>
+<section class="homehero" id="hero"><div class="home-date" id="date"></div><div class="hotcard"><div class="hothead"><div><span class="hotbadge">BRIEF</span><span class="hotmeta" id="updated"></span><div class="hottitle">오늘의 핵심 뉴스</div><div class="hotsub">최근 인기와 발행 시각을 반영했으며, 같은 사건은 하나로 묶어 보여줍니다.</div></div></div><div class="hotpage" id="hot"></div></div></section>
 <div class="sectionTitle" id="sectionTitle">지금 주목할 뉴스</div><main class="grid" id="cards"><div class="empty">뉴스를 불러오는 중입니다.</div></main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script>
 const cats=['정치','경제','사회','생활/문화','세계','IT/과학'];
-const state={mode:'home',category:'',q:'',items:[],showBaduk:localStorage.getItem('newsbrief-show-baduk')!=='0',requestSeq:0};
+const state={mode:'home',category:'',q:'',items:[],heroItems:[],showBaduk:localStorage.getItem('newsbrief-show-baduk')!=='0',requestSeq:0};
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=v=>{const d=new Date(v);return Number.isNaN(+d)?'':new Intl.DateTimeFormat('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(d)};
@@ -25,7 +25,13 @@ function nav(){
   $('categories').innerHTML=show?cats.map(c=>`<button class="pill ${state.category===c?'on':''}" data-cat="${c}">${c}</button>`).join(''):'';
 }
 function renderHero(){
-  $('hero').style.display='none';
+  const show=state.mode==='home'&&!state.q;
+  $('hero').style.display=show?'block':'none';
+  if(!show)return;
+  $('date').textContent=new Intl.DateTimeFormat('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'long'}).format(new Date());
+  const refreshed=[...state.heroItems,...state.items].map(x=>Date.parse(x.fetched_at||'')).filter(Number.isFinite).sort((a,b)=>b-a)[0];
+  $('updated').textContent=refreshed?`${fmt(refreshed)} 최근 갱신`:'';
+  $('hot').innerHTML=state.heroItems.map((x,i)=>`<a class="hotchip" href="${esc(x.url)}" target="_blank" rel="noopener"><span class="hotrank">${String(i+1).padStart(2,'0')}</span><span class="hottext">${esc(x.title)}</span>${x.related_count?`<span class="hotrelated">관련 ${x.related_count+1}건</span>`:''}<span aria-hidden="true">↗</span></a>`).join('')||'<div class="empty">핵심 뉴스를 준비하고 있습니다.</div>';
 }
 function relatedHtml(item){
   if(!item.related_count)return'';
@@ -52,8 +58,22 @@ async function load({silent=false}={}){
   if(!state.showBaduk&&state.mode!=='baduk')p.set('exclude_baduk','1');
   if(state.q)p.set('q',state.q);
   try{
-    const r=await fetch(`/api/news/articles?${p}`),d=await r.json();if(requestId!==state.requestSeq)return;if(!r.ok)throw Error(d.error);
-    state.items=d.items||[];
+    if(state.mode==='home'&&!state.q){
+      const common=state.showBaduk?'':'&exclude_baduk=1';
+      const [homeResponse,popularResponse]=await Promise.all([
+        fetch(`/api/news/articles?view=home&limit=30${common}`),
+        fetch(`/api/news/articles?view=popular&limit=6${common}`)
+      ]);
+      const [home,popular]=await Promise.all([homeResponse.json(),popularResponse.json()]);
+      if(requestId!==state.requestSeq)return;
+      if(!homeResponse.ok)throw Error(home.error);
+      state.heroItems=popularResponse.ok?(popular.items||[]):[];
+      const featured=new Set(state.heroItems.map(x=>x.url_key));
+      state.items=(home.items||[]).filter(x=>!featured.has(x.url_key));
+    }else{
+      const r=await fetch(`/api/news/articles?${p}`),d=await r.json();if(requestId!==state.requestSeq)return;if(!r.ok)throw Error(d.error);
+      state.heroItems=[];state.items=d.items||[];
+    }
     render()
   }
   catch(e){if(requestId===state.requestSeq&&!silent)$('cards').innerHTML=`<div class="empty">${esc(e.message||'불러오기 실패')}</div>`}
