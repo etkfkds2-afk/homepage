@@ -261,10 +261,10 @@ async function collectArchivedTop(slot) {
   return rows;
 }
 
-async function collect(env, { backfill = false, googleDiscoveries = [] } = {}) {
+async function collect(env, { backfill = false, repair = false, googleDiscoveries = [] } = {}) {
   const diagnostics = { mode: backfill ? 'backfill' : 'scheduled', retry_attempted: 0, retry_repaired: 0, samples: [] };
-  let aiRetryRemaining = 1;
-  let aiNewRemaining = 1;
+  let aiRetryRemaining = repair ? 12 : (backfill ? 6 : 1);
+  let aiNewRemaining = repair ? 0 : 1;
   const summarize = async (payload, detail, purpose = 'new') => {
     const useAi = purpose === 'retry' ? aiRetryRemaining > 0 : aiNewRemaining > 0;
     if (useAi && purpose === 'retry') aiRetryRemaining -= 1;
@@ -288,8 +288,9 @@ async function collect(env, { backfill = false, googleDiscoveries = [] } = {}) {
   if (poisoned.length) await env.DB.batch(poisoned.map(row => env.DB.prepare("UPDATE news_articles SET summary='',summary_quality='none' WHERE id=?").bind(row.id)));
   const retryRows = await env.DB.prepare(`SELECT a.id,a.url_key,a.title,a.raw_summary,a.body_text FROM news_articles a
     LEFT JOIN news_summary_attempts f ON f.url_key=a.url_key
-    WHERE a.summary_quality='none' AND length(a.body_text)>=300 AND COALESCE(f.attempts,0)<6
-    ORDER BY CASE WHEN a.category='바둑' THEN 0 ELSE 1 END, a.fetched_at DESC LIMIT 16`).all();
+    WHERE a.summary_quality='none' AND length(a.body_text)>=300 AND COALESCE(f.attempts,0)<?
+    ORDER BY CASE WHEN a.category='바둑' THEN 0 ELSE 1 END, length(a.body_text) DESC, a.fetched_at DESC LIMIT ?`)
+    .bind(repair ? 12 : 6, aiRetryRemaining).all();
   for (const row of retryRows.results || []) {
     if (isRejectedTitle(row.title)) continue;
     const detail = {};
@@ -302,12 +303,13 @@ async function collect(env, { backfill = false, googleDiscoveries = [] } = {}) {
         env.DB.prepare('DELETE FROM news_summary_attempts WHERE url_key=?').bind(row.url_key)
       ]);
       diagnostics.retry_repaired += 1;
-    } else {
+    } else if (detail.ai_attempted) {
       await env.DB.prepare(`INSERT INTO news_summary_attempts(url_key,attempts,last_attempt) VALUES(?,1,CURRENT_TIMESTAMP)
         ON CONFLICT(url_key) DO UPDATE SET attempts=attempts+1,last_attempt=CURRENT_TIMESTAMP`).bind(row.url_key).run();
     }
   }
   const candidates = [];
+  if (repair) return { inserted: 0, diagnostics };
   const cursorKey = backfill ? 'history_cursor' : 'rotation_cursor';
   const cursorRow = await env.DB.prepare('SELECT value FROM news_state WHERE key=?').bind(cursorKey).first();
   const slot = Number(cursorRow?.value || 0);
@@ -474,13 +476,15 @@ export async function onRequestPost({ request, env }) {
     const started = new Date().toISOString();
     const run = await env.DB.prepare("INSERT INTO news_runs(started_at,status) VALUES(?,'running') RETURNING id").bind(started).first();
     runId = run?.id;
-    const backfill = new URL(request.url).searchParams.get('backfill') === '1';
+    const requestUrl = new URL(request.url);
+    const backfill = requestUrl.searchParams.get('backfill') === '1';
+    const repair = requestUrl.searchParams.get('repair') === '1';
     let payload = {};
     try {
       if ((request.headers.get('content-type') || '').includes('application/json')) payload = await request.json();
     } catch {}
     const googleDiscoveries = Array.isArray(payload?.googleDiscoveries) ? payload.googleDiscoveries : [];
-    const result = await collect(env, { backfill, googleDiscoveries });
+    const result = await collect(env, { backfill, repair, googleDiscoveries });
     await env.DB.prepare("UPDATE news_runs SET finished_at=?,status='ok',inserted_count=? WHERE id=?")
       .bind(new Date().toISOString(), result.inserted, runId).run();
     return json({ ok: true, ...result });

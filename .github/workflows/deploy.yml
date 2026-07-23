@@ -105,3 +105,11 @@ jobs:
               -H "Authorization: Bearer ${NEWSBRIEF_COLLECT_TOKEN}" \
               "$endpoint"
           done
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            for i in $(seq 1 5); do
+              curl --fail-with-body --retry 3 --max-time 240 \
+                -X POST \
+                -H "Authorization: Bearer ${NEWSBRIEF_COLLECT_TOKEN}" \
+                "https://newsbrief-etkfkds2.pages.dev/api/news/collect?repair=1"
+            done
+          fi

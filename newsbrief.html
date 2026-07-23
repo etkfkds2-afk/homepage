@@ -64,7 +64,7 @@ async function load({silent=false}={}){
     if(state.mode==='home'&&!state.q){
       const common=state.showBaduk?'':'&exclude_baduk=1';
       const [latestResponse,popularResponse]=await Promise.all([
-        fetch(`/api/news/articles?view=latest&limit=30${common}`),
+        fetch(`/api/news/articles?view=latest&limit=30&hours=24${common}`),
         fetch(`/api/news/articles?view=popular&limit=6${common}`)
       ]);
       const [latest,popular]=await Promise.all([latestResponse.json(),popularResponse.json()]);

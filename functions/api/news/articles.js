@@ -61,6 +61,7 @@ export async function onRequestGet({ request, env }) {
     const url = new URL(request.url);
     const category = url.searchParams.get('category') || '';
     const query = (url.searchParams.get('q') || '').trim().slice(0, 100);
+    const hours = Math.min(Math.max(Number(url.searchParams.get('hours')) || 0, 0), 24 * 30);
     const requestedView = url.searchParams.get('view') || 'latest';
     const view = ['saved', 'popular', 'home'].includes(requestedView) ? requestedView : 'latest';
     const excludeBaduk = url.searchParams.get('exclude_baduk') === '1';
@@ -105,6 +106,10 @@ export async function onRequestGet({ request, env }) {
     if (view === 'saved') where.push('s.url_key IS NOT NULL');
     if (view === 'popular') where.push('p.title IS NOT NULL');
     if (view !== 'saved') where.push("COALESCE(NULLIF(a.published_at,''),a.fetched_at) >= datetime('now','-30 days')");
+    if (hours > 0 && view !== 'saved') {
+      where.push("COALESCE(NULLIF(a.published_at,''),a.fetched_at) >= datetime('now', ?)");
+      bindings.push(`-${hours} hours`);
+    }
     // Similar stories are collapsed after the query. Read extra rows so that
     // deduplication does not make a requested 100/300 item page needlessly short.
     const queryLimit = Math.min(limit * 3, 900);

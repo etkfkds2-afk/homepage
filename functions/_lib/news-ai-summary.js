@@ -30,6 +30,7 @@ export async function makeBestSummary(env, { title = '', rawSummary = '', body =
   if (!source) return '';
 
   if (env?.AI && source.length >= 300) {
+    if (diagnostics) diagnostics.ai_attempted = true;
     const instructions = `당신은 한국어 뉴스 편집자다. 제공된 원문에 명시된 사실만 사용해 정확히 3줄로 요약한다.
 
 절대 규칙:
