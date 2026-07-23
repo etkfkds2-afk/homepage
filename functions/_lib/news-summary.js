@@ -116,3 +116,24 @@ export function sanitizeStoredSummary({ title = '', summary = '', body = '' } = 
     lineCount
   };
 }
+
+const POISON_PATTERNS = [
+  /(?:var\s+\w+|function\s*\(|=>|updateLive|setTimeout|\bconst\s+|\blet\s+)/i,
+  /(?:송고\s*\d{4}|입력\s*\d{4}|수정\s*\d{4}|생방송\s*뉴스|FM\s*\d|완독\s*약)/i,
+  /(?:텔레그램\s*채널|구독\s*상품|내구독|보관함|하이라이트\/메모|제보로\s*함께)/i,
+  /(?:주요\s*뉴스를\s*전해|뉴스를\s*모아|뉴스\s*서비스를\s*제공|놓쳐버린\s*주요\s*뉴스)/i,
+  /(?:관련기사|추천뉴스|많이\s*본\s*뉴스|함께\s*본\s*뉴스)/i,
+  /(?:\.{3,}|…$)/
+];
+
+export function validateThreeLineSummary(summary, title = '') {
+  const lines = normalizeText(summary).split('\n').map(stripNumbering).filter(Boolean);
+  if (lines.length !== 3) return false;
+  const titleKey = comparisonKey(title);
+  for (const line of lines) {
+    if (line.length < 24 || line.length > 190) return false;
+    if (POISON_PATTERNS.some(pattern => pattern.test(line)) || isJunkLine(line)) return false;
+    if (titleKey && isNearDuplicate(line, title)) return false;
+  }
+  return !isNearDuplicate(lines[0], lines[1]) && !isNearDuplicate(lines[0], lines[2]) && !isNearDuplicate(lines[1], lines[2]);
+}

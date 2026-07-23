@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSummary, isJunkLine, sanitizeStoredSummary } from '../functions/_lib/news-summary.js';
+import { buildSummary, isJunkLine, sanitizeStoredSummary, validateThreeLineSummary } from '../functions/_lib/news-summary.js';
 
 test('포털 자동요약 안내와 UI 문장을 제거한다', () => {
   const summary = buildSummary({
@@ -43,4 +43,10 @@ test('편집국 메타와 잘린 문장을 요약에서 제외한다', () => {
     rawSummary: '편집국 July 23, 2026 완독 약 5 분 소요\n물류 센터 피격으로 직원들이 부상당했고...\n현지 정부는 피해 현황을 조사하고 있다고 밝혔다.'
   });
   assert.equal(summary, '1) 현지 정부는 피해 현황을 조사하고 있다고 밝혔다.');
+});
+
+test('오염되거나 세 줄이 아닌 요약은 저장을 거부한다', () => {
+  assert.equal(validateThreeLineSummary('1) 정상적인 첫 문장이다.\n2) 정상적인 둘째 문장이다.\n3) updateLiveOnAirNews()', '제목'), false);
+  assert.equal(validateThreeLineSummary('1) 한 줄뿐인 요약 문장으로 저장하면 안 된다.', '제목'), false);
+  assert.equal(validateThreeLineSummary('1) 정부는 지원 정책의 세부 기준을 오늘 공개했다.\n2) 지원 대상은 다음 달부터 전국으로 확대될 예정이다.\n3) 관계 부처는 현장 의견을 반영해 후속 대책을 마련한다.', '새 지원 정책 발표'), true);
 });
