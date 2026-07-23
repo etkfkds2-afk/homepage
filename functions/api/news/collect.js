@@ -10,6 +10,12 @@ const SEARCHES = [
   ['IT/과학', 'IT 과학 주요 뉴스'], ['바둑', '바둑 대회 프로기사']
 ];
 
+const BADUK_SEARCHES = [
+  '바둑', '바둑 대회', '한국기원', '프로바둑 대회', '바둑리그', '여자바둑리그',
+  '신진서 대국', '최정 바둑', '세계 바둑대회', '아마추어 바둑대회',
+  '어린이 바둑대회', '청소년 바둑대회', '지역 바둑대회', '생활체육 바둑대회'
+];
+
 const GENERIC_TITLES = new Set(['이 시각 주요 뉴스', '오늘의 주요 뉴스', '주요 뉴스', '뉴스 브리핑']);
 
 const BODY_JUNK = /(?:무단전재|재배포\s*금지|저작권자|구독|로그인|회원가입|제보|관련기사|추천뉴스|많이\s*본\s*뉴스|기사제공|기자\s*[A-Z0-9._%+-]+@)/i;
@@ -87,13 +93,14 @@ async function fetchArticleText(url) {
   }
 }
 
-async function naverSearch(env, query) {
+async function naverSearch(env, query, start = 1) {
   if (!env.NAVER_CLIENT_ID || !env.NAVER_CLIENT_SECRET) {
     throw new Error('NAVER_CLIENT_ID 또는 NAVER_CLIENT_SECRET이 없습니다.');
   }
   const endpoint = new URL('https://openapi.naver.com/v1/search/news.json');
   endpoint.searchParams.set('query', query);
   endpoint.searchParams.set('display', '5');
+  endpoint.searchParams.set('start', String(start));
   endpoint.searchParams.set('sort', 'date');
   const response = await fetch(endpoint, {
     headers: {
@@ -105,8 +112,55 @@ async function naverSearch(env, query) {
   return (await response.json()).items || [];
 }
 
+async function kakaoSearch(env, query, page = 1) {
+  if (!env.KAKAO_REST_API_KEY) return [];
+  const endpoint = new URL('https://dapi.kakao.com/v2/search/news');
+  endpoint.searchParams.set('query', query);
+  endpoint.searchParams.set('size', '5');
+  endpoint.searchParams.set('page', String(page));
+  endpoint.searchParams.set('sort', 'recency');
+  const response = await fetch(endpoint, { headers: { Authorization: `KakaoAK ${env.KAKAO_REST_API_KEY}` } });
+  if (!response.ok) throw new Error(`Kakao API ${response.status}`);
+  return ((await response.json()).documents || []).map(doc => ({
+    title: doc.title, link: doc.url, originallink: doc.url, description: doc.contents,
+    pubDate: doc.datetime, thumbnail: doc.thumbnail || ''
+  }));
+}
+
+function xmlText(block, tag) {
+  return normalizeText((block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))?.[1] || '')
+    .replace(/^<!\[CDATA\[|\]\]>$/g, ''));
+}
+
+async function googleNewsSearch(query) {
+  const endpoint = new URL('https://news.google.com/rss/search');
+  endpoint.searchParams.set('q', `${query} when:30d`);
+  endpoint.searchParams.set('hl', 'ko');
+  endpoint.searchParams.set('gl', 'KR');
+  endpoint.searchParams.set('ceid', 'KR:ko');
+  const response = await fetch(endpoint, { headers: { 'user-agent': 'NewsBrief/Cloudflare' } });
+  if (!response.ok) throw new Error(`Google News RSS ${response.status}`);
+  const xml = await response.text();
+  return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)].slice(0, 5).map(match => {
+    const rawTitle = xmlText(match[1], 'title');
+    const parts = rawTitle.split(/\s+-\s+/);
+    const press = parts.length > 1 ? parts.pop() : '';
+    return {
+      title: parts.join(' - ') || rawTitle, link: xmlText(match[1], 'link'),
+      originallink: xmlText(match[1], 'link'), description: xmlText(match[1], 'description'),
+      pubDate: xmlText(match[1], 'pubDate'), press
+    };
+  });
+}
+
 async function collect(env) {
   const diagnostics = { retry_attempted: 0, retry_repaired: 0, samples: [] };
+  let aiRemaining = 2;
+  const summarize = async (payload, detail) => {
+    const useAi = aiRemaining > 0;
+    if (useAi) aiRemaining -= 1;
+    return makeBestSummary(useAi ? env : { AI: undefined }, payload, detail);
+  };
   const stored = await env.DB.prepare('SELECT id,title,summary FROM news_articles').all();
   const poisoned = (stored.results || []).filter(row => GENERIC_TITLES.has(row.title) || isRejectedTitle(row.title) || !validateThreeLineSummary(row.summary, row.title));
   if (poisoned.length) await env.DB.batch(poisoned.map(row => env.DB.prepare("UPDATE news_articles SET summary='',summary_quality='none' WHERE id=?").bind(row.id)));
@@ -115,7 +169,7 @@ async function collect(env) {
   for (const row of retryRows.results || []) {
     if (isRejectedTitle(row.title)) continue;
     const detail = {};
-    const repaired = await makeBestSummary(env, { title: row.title, rawSummary: row.raw_summary, body: row.body_text }, detail);
+    const repaired = await summarize({ title: row.title, rawSummary: row.raw_summary, body: row.body_text }, detail);
     diagnostics.retry_attempted += 1;
     if (diagnostics.samples.length < 2) diagnostics.samples.push({ title: row.title, ...detail });
     if (validateThreeLineSummary(repaired, row.title)) {
@@ -124,17 +178,25 @@ async function collect(env) {
     }
   }
   const candidates = [];
+  const slot = Math.floor(Date.now() / 1800000);
+  const backfillStart = (slot % 20) * 5 + 1;
   for (const [category, query] of SEARCHES) {
-    const items = await naverSearch(env, query);
-    for (const item of items.slice(0, 4)) candidates.push({ category, item });
+    const items = await naverSearch(env, query, category === '바둑' ? backfillStart : 1);
+    for (const item of items.slice(0, 2)) candidates.push({ category, item, source: 'NAVER' });
+    const kakaoItems = await kakaoSearch(env, query, category === '바둑' ? (slot % 10) + 1 : 1);
+    for (const item of kakaoItems.slice(0, 2)) candidates.push({ category, item, source: 'KAKAO' });
   }
+  const badukQuery = BADUK_SEARCHES[slot % BADUK_SEARCHES.length];
+  for (const item of (await googleNewsSearch(badukQuery)).slice(0, 3)) candidates.push({ category: '바둑', item, source: 'GOOGLE' });
 
   let inserted = 0;
-  for (const { category, item } of candidates) {
+  for (const { category, item, source } of candidates) {
     const url = canonicalUrl(item.originallink || item.link);
     const title = cleanTitle(item.title);
+    const publishedAt = parseDate(item.pubDate);
     if (!url || !title || GENERIC_TITLES.has(title) || isRejectedTitle(title) || !/^https?:\/\//.test(url)) continue;
-    const press = pressFromTitle(item.title);
+    if (publishedAt && Date.parse(publishedAt) < Date.now() - 30 * 86400000) continue;
+    const press = item.press || pressFromTitle(item.title);
     const urlKey = await sha256(url);
     const exists = await env.DB.prepare('SELECT id,image_url,summary_quality,raw_summary,body_text FROM news_articles WHERE url_key=?').bind(urlKey).first();
     if (exists) {
@@ -142,7 +204,7 @@ async function collect(env) {
         const fetchUrl = /^https?:\/\/(?:n\.)?news\.naver\.com\//i.test(item.link || '') ? item.link : url;
         let article = await fetchArticleText(fetchUrl);
         if (article.body.length < 300 && fetchUrl !== url) article = await fetchArticleText(url);
-        const repaired = await makeBestSummary(env, { title, rawSummary: stripHtml(item.description) || exists.raw_summary, body: article.body || exists.body_text });
+        const repaired = await summarize({ title, rawSummary: stripHtml(item.description) || exists.raw_summary, body: article.body || exists.body_text });
         const valid = validateThreeLineSummary(repaired, title);
         await env.DB.prepare(`UPDATE news_articles SET
           image_url=CASE WHEN ?<>'' THEN ? ELSE image_url END,
@@ -159,7 +221,7 @@ async function collect(env) {
     let article = await fetchArticleText(fetchUrl);
     if (article.body.length < 300 && fetchUrl !== url) article = await fetchArticleText(url);
     const body = article.body;
-    const summary = await makeBestSummary(env, { title, rawSummary, body });
+    const summary = await summarize({ title, rawSummary, body });
     const validSummary = validateThreeLineSummary(summary, title);
 
     await env.DB.prepare(`
@@ -173,7 +235,7 @@ async function collect(env) {
         summary=CASE WHEN length(excluded.summary)>length(news_articles.summary) THEN excluded.summary ELSE news_articles.summary END,
         summary_quality=excluded.summary_quality
     `).bind(
-      url, urlKey, title, 'NAVER', press, category, parseDate(item.pubDate), rawSummary,
+      url, urlKey, title, source || 'NAVER', press, category, publishedAt, rawSummary,
       body, validSummary ? summary : '', validSummary ? 'full' : 'none', article.image
     ).run();
     inserted += 1;
