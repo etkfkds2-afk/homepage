@@ -42,7 +42,7 @@ export async function makeBestSummary(env, { title = '', rawSummary = '', body =
 - 말줄임표와 문장 조각을 쓰지 않는다.
 - 출력은 "1) 문장", "2) 문장", "3) 문장" 세 줄뿐이다.`;
     try {
-      const result = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      const result = await env.AI.run('@cf/meta/llama-4-scout-17b-16e-instruct', {
         messages: [
           { role: 'system', content: instructions },
           { role: 'user', content: `제목: ${title}\n\n원문:\n${source}` }
