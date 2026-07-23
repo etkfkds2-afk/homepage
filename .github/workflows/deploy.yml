@@ -5,7 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
   schedule:
-    - cron: '7,37 * * * *'
+    # GitHub may delay scheduled jobs during busy periods. Running every 15
+    # minutes gives the collector another chance without duplicating articles;
+    # URL keys in D1 make every collection idempotent.
+    - cron: '*/15 * * * *'
 
 jobs:
   deploy:
