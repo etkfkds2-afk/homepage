@@ -138,7 +138,10 @@ async function googleNewsSearch(query) {
   endpoint.searchParams.set('hl', 'ko');
   endpoint.searchParams.set('gl', 'KR');
   endpoint.searchParams.set('ceid', 'KR:ko');
-  const response = await fetch(endpoint, { headers: { 'user-agent': 'NewsBrief/Cloudflare' } });
+  let response = await fetch(endpoint, { headers: { 'user-agent': 'Mozilla/5.0 NewsBrief/1.0', accept: 'application/rss+xml, application/xml;q=0.9' } });
+  if (response.status >= 500) {
+    response = await fetch(endpoint, { headers: { 'user-agent': 'Mozilla/5.0', accept: 'application/xml,text/xml;q=0.9,*/*;q=0.8' } });
+  }
   if (!response.ok) throw new Error(`Google News RSS ${response.status}`);
   const xml = await response.text();
   return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)].slice(0, 5).map(match => {
