@@ -156,6 +156,36 @@ async function googleNewsSearch(query) {
   });
 }
 
+async function popularPage(url, source) {
+  const response = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0 NewsBrief/1.0' } });
+  if (!response.ok) return [];
+  const html = await response.text();
+  const out = [], seen = new Set();
+  for (const match of html.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    let href = normalizeText(match[1]);
+    if (href.startsWith('//')) href = `https:${href}`;
+    if (href.startsWith('/')) href = new URL(href, url).toString();
+    if (source === 'NAVER' && !/naver\.com\/(?:main\/ranking\/(?:read|rankingRead)\.naver|mnews\/article|article\/)/i.test(href)) continue;
+    if (source === 'DAUM' && !/(?:v\.daum\.net\/v\/|news\.daum\.net\/)/i.test(href)) continue;
+    const title = cleanTitle(match[2]);
+    if (title.length < 8 || seen.has(href) || isRejectedTitle(title)) continue;
+    seen.add(href); out.push({ href, title, rank: out.length + 1, source });
+    if (out.length >= 30) break;
+  }
+  return out;
+}
+
+async function collectPopularity() {
+  const pages = [
+    ...[['100','정치'],['101','경제'],['102','사회'],['103','생활/문화'],['104','세계']]
+      .map(([sid, category]) => [`https://news.naver.com/main/ranking/popularDay.naver?mid=etc&sid1=${sid}`, 'NAVER', category]),
+    ['https://news.daum.net/ranking/popular', 'DAUM', '기타']
+  ];
+  const rows = [];
+  for (const [url, source, category] of pages) rows.push(...(await popularPage(url, source)).map(row => ({ ...row, category })));
+  return rows;
+}
+
 async function collect(env) {
   const diagnostics = { retry_attempted: 0, retry_repaired: 0, samples: [] };
   let aiRemaining = 2;
@@ -185,10 +215,10 @@ async function collect(env) {
   const backfillStart = (slot % 20) * 5 + 1;
   for (const [category, query] of SEARCHES) {
     const items = await naverSearch(env, query, category === '바둑' ? backfillStart : 1);
-    for (const item of items.slice(0, 2)) candidates.push({ category, item, source: 'NAVER' });
+    for (const item of items.slice(0, 1)) candidates.push({ category, item, source: 'NAVER' });
     try {
       const kakaoItems = await kakaoSearch(env, query, category === '바둑' ? (slot % 10) + 1 : 1);
-      for (const item of kakaoItems.slice(0, 2)) candidates.push({ category, item, source: 'KAKAO' });
+      for (const item of kakaoItems.slice(0, 1)) candidates.push({ category, item, source: 'KAKAO' });
     } catch (error) {
       diagnostics.kakao_error = String(error?.message || error).slice(0, 120);
     }
@@ -199,10 +229,29 @@ async function collect(env) {
   } catch (error) {
     diagnostics.google_error = String(error?.message || error).slice(0, 120);
   }
+  try {
+    const popular = await collectPopularity();
+    diagnostics.popular_found = popular.length;
+    for (const row of popular.filter(row => row.rank === 1)) candidates.push({
+      category: row.category,
+      source: row.source,
+      item: { title: row.title, link: row.href, originallink: row.href, description: '', pubDate: '' }
+    });
+    for (const row of popular) {
+      const key = await sha256(canonicalUrl(row.href));
+      await env.DB.prepare(`INSERT INTO news_popularity(url_key,score,rank,source,collected_at)
+        VALUES(?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(url_key) DO UPDATE SET
+        score=excluded.score,rank=excluded.rank,source=excluded.source,collected_at=CURRENT_TIMESTAMP`)
+        .bind(key, 101 - row.rank, row.rank, row.source).run();
+    }
+  } catch (error) {
+    diagnostics.popular_error = String(error?.message || error).slice(0, 120);
+  }
 
   let inserted = 0;
   for (const { category, item, source } of candidates) {
-    const url = canonicalUrl(item.originallink || item.link);
+    const preferredUrl = source === 'NAVER' && /naver\.com\//i.test(item.link || '') ? item.link : (item.originallink || item.link);
+    const url = canonicalUrl(preferredUrl);
     const title = cleanTitle(item.title);
     const publishedAt = parseDate(item.pubDate);
     if (!url || !title || GENERIC_TITLES.has(title) || isRejectedTitle(title) || !/^https?:\/\//.test(url)) continue;
