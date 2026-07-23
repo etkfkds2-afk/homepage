@@ -5,13 +5,13 @@
 .title{color:var(--text)}
 .hotmodes{display:flex;gap:7px;align-items:center}.hotmodes .pill{padding:6px 11px;font-size:12px}
 </style></head><body>
-<header class="top"><div><div class="brand">NewsBrief</div><div class="tagline">오늘의 뉴스를 3줄로 정리해, 판단을 가병게.<br>중요한 기사만 저장하고 미래의 나에게 남기세요.</div></div><div class="controls"><div class="modebar"><button class="pill on" data-view="home">홈</button><button class="pill" data-view="latest">최신순</button><button class="pill" data-view="popular">인기순</button><button class="pill" data-view="saved">저장</button><button class="pill baduk" data-view="baduk">바둑</button><button class="pill setting" id="topicToggle" type="button">바둑 숨기기</button><span class="status" id="status">연결 확인 중</span></div><div class="filterbar" id="categories"></div><form class="searchbar" id="search"><input id="query" placeholder="최근 한 달 뉴스 검색" aria-label="뉴스 검색"><button>검색</button></form></div></header>
+<header class="top"><div><div class="brand">NewsBrief</div><div class="tagline">오늘의 뉴스를 3줄로 정리해, 판단을 가볍게.<br>중요한 기사만 저장하고 미래의 나에게 남기세요.</div></div><div class="controls"><div class="modebar"><button class="pill on" data-view="home">홈</button><button class="pill baduk" data-view="baduk">바둑</button><button class="pill" data-view="latest">최신순</button><button class="pill" data-view="popular">인기순</button><button class="pill" data-view="saved">저장</button><span class="status" id="status">연결 확인 중</span></div><div class="filterbar" id="categories"></div><form class="searchbar" id="search"><input id="query" aria-label="뉴스 검색"><button>검색</button></form></div></header>
 <section class="homehero" id="hero"><div class="home-date" id="date"></div><div class="hotcard"><div class="hothead"><div><span class="hotbadge">24H</span><span class="hotmeta" id="updated"></span><div class="hottitle">오늘의 핵심 뉴스</div></div><div class="hotmodes"><button class="pill on" type="button" data-hot="general">일반</button><button class="pill baduk" type="button" data-hot="baduk">바둑</button></div></div><div class="hotpage" id="hot"></div></div></section>
 <div class="sectionTitle" id="sectionTitle">지금 주목할 뉴스</div><main class="grid" id="cards"><div class="empty">뉴스를 불러오는 중입니다.</div></main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script>
 const cats=['정치','경제','사회','생활/문화','세계','IT/과학'];
-const state={mode:'home',category:'',q:'',items:[],heroItems:[],heroTopic:localStorage.getItem('newsbrief-show-baduk')!=='0'?'baduk':'general',showBaduk:localStorage.getItem('newsbrief-show-baduk')!=='0',requestSeq:0};
+const state={mode:'home',category:'',q:'',items:[],heroItems:[],heroTopic:'baduk',requestSeq:0};
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=v=>{const d=new Date(v);return Number.isNaN(+d)?'':new Intl.DateTimeFormat('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(d)};
@@ -19,9 +19,7 @@ let toastTimer;
 function toast(message){clearTimeout(toastTimer);$('toast').textContent=message;$('toast').classList.add('show');toastTimer=setTimeout(()=>$('toast').classList.remove('show'),1800)}
 function nav(){
   document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('on',b.dataset.view===state.mode));
-  document.querySelector('[data-view="baduk"]').hidden=!state.showBaduk;
-  document.querySelectorAll('[data-hot]').forEach(b=>{b.classList.toggle('on',b.dataset.hot===state.heroTopic);if(b.dataset.hot==='baduk')b.hidden=!state.showBaduk});
-  $('topicToggle').textContent=state.showBaduk?'바둑 숨기기':'바둑 보이기';
+  document.querySelectorAll('[data-hot]').forEach(b=>b.classList.toggle('on',b.dataset.hot===state.heroTopic));
   const show=state.mode==='latest'||state.mode==='popular';
   $('categories').style.display=show?'flex':'none';
   $('categories').innerHTML=show?cats.map(c=>`<button class="pill ${state.category===c?'on':''}" data-cat="${c}">${c}</button>`).join(''):'';
@@ -57,12 +55,11 @@ async function load({silent=false}={}){
   const p=new URLSearchParams({limit:state.mode==='home'?'30':state.mode==='baduk'?'100':'300',view});
   const category=state.mode==='baduk'?'바둑':state.category;
   if(category)p.set('category',category);
-  if(!state.showBaduk&&state.mode!=='baduk')p.set('exclude_baduk','1');
   if(state.q)p.set('q',state.q);
   try{
     if(state.mode==='home'&&!state.q){
-      const common=state.showBaduk?'':'&exclude_baduk=1';
-      const badukHome=state.heroTopic==='baduk'&&state.showBaduk;
+      const common='';
+      const badukHome=state.heroTopic==='baduk';
       const heroUrl=badukHome
         ? '/api/news/articles?view=latest&category=%EB%B0%94%EB%91%91&limit=6&hours=168'
         : `/api/news/articles?view=popular&limit=6&hours=24${common}`;
@@ -95,12 +92,6 @@ document.addEventListener('click',e=>{
   if(view){state.mode=view;state.category='';state.q='';$('query').value='';load();return}
   const category=e.target.dataset.cat;
   if(category){state.category=category;load()}
-});
-$('topicToggle').addEventListener('click',()=>{
-  state.showBaduk=!state.showBaduk;localStorage.setItem('newsbrief-show-baduk',state.showBaduk?'1':'0');
-  if(!state.showBaduk&&state.heroTopic==='baduk')state.heroTopic='general';
-  if(!state.showBaduk&&state.mode==='baduk')state.mode='home';
-  toast(state.showBaduk?'바둑 주제를 표시합니다.':'바둑 주제를 숨겼습니다.');load();
 });
 $('cards').addEventListener('click',async e=>{
   const action=e.target.dataset.action;if(!action)return;
