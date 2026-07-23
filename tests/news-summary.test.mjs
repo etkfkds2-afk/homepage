@@ -87,12 +87,18 @@ test('HTML 숫자 엔티티를 실제 줄바꿈으로 정규화한다', () => {
   assert.equal(normalizeText('&amp;lt;설국&amp;gt;'), '<설국>');
   assert.equal(normalizeText('초&middot;중&middot;고등학생'), '초·중·고등학생');
   assert.equal(normalizeText("바둑 협회가 '학생 바둑대회 '가 문성고등 학교에서 열린다."), "바둑협회가 '학생 바둑대회'가 문성고등학교에서 열린다.");
+  assert.equal(normalizeText('신진서 는 대국 료를 받고, 접 바둑에 나선다.'), '신진서는 대국료를 받고, 접바둑에 나선다.');
 });
 
 test('칼럼·사설·기고는 일반 뉴스 요약에서 제외한다', () => {
   const summary = '1) 신진서 9단은 카타고와 세 차례 공식 대국을 치렀다.\n2) 대국은 접바둑과 시간 항드를 적용해 진행됐다.\n3) 주최 측은 향후 추가 대국을 검토한다고 밝혔다.';
   assert.equal(validateThreeLineSummary(summary, '[윤성민 칼럼] 신진서 對 카타고 기신전에 부쳐'), false);
   assert.equal(validateThreeLineSummary(summary, '[사설] 바둑 인공지능 대국의 과제'), false);
+});
+
+test('제목이 주제어 하나인 설명형 페이지는 뉴스에서 제외한다', () => {
+  const summary = '1) 신진서 9단은 카타고와 세 차례 대국을 치렀다.\n2) 두 대국자는 서로 다른 제한 시간을 적용받았다.\n3) 신진서 9단은 최종 전적 2승 1패를 기록했다.';
+  assert.equal(validateThreeLineSummary(summary, '카타고'), false);
 });
 
 test('행사 의미를 덧붙이는 홍보성 문장을 요약으로 인정하지 않는다', () => {

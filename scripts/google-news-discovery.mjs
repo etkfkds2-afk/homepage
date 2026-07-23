@@ -21,7 +21,7 @@ const selected = full ? queries : Array.from({ length: 8 }, (_, i) => queries[(h
 const found = new Map();
 for (const query of selected) {
   const endpoint = new URL('https://news.google.com/rss/search');
-  endpoint.searchParams.set('q', `${query} when:${full ? 30 : 1}d`);
+  endpoint.searchParams.set('q', `${query} when:30d`);
   endpoint.searchParams.set('hl', 'ko'); endpoint.searchParams.set('gl', 'KR'); endpoint.searchParams.set('ceid', 'KR:ko');
   const response = await fetch(endpoint, { headers: { 'user-agent': 'Mozilla/5.0 NewsBrief personal feed reader' } });
   if (!response.ok) continue;

@@ -287,7 +287,13 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
     const fixed = articleSource(row.url, row.source, row.press);
     if (fixed !== row.source) await env.DB.prepare('UPDATE news_articles SET source=? WHERE id=?').bind(fixed, row.id).run();
   }
-  const poisoned = (stored.results || []).filter(row => GENERIC_TITLES.has(row.title) || isRejectedTitle(row.title) || !validateThreeLineSummary(row.summary, row.title));
+  const storedPollution = row => row.category === '바둑' && (
+    /&(?:[a-z][a-z0-9]+|#(?:x[0-9a-f]+|\d+));/i.test(row.summary || '')
+    || /[가-힣]\s+(?:은|는|이|가|을|를|와|과|의|에|도|만)(?=\s|[,.;:!?]|$)/u.test(row.summary || '')
+    || /(?:대국\s+료|접\s+바둑|고등\s+학교|바둑\s+협회)/u.test(row.summary || '')
+  );
+  const poisoned = (stored.results || []).filter(row => GENERIC_TITLES.has(row.title) || isRejectedTitle(row.title)
+    || storedPollution(row) || !validateThreeLineSummary(row.summary, row.title));
   if (poisoned.length) await env.DB.batch(poisoned.map(row => env.DB.prepare("UPDATE news_articles SET summary='',summary_quality='none' WHERE id=?").bind(row.id)));
   if (repair) {
     const weakRows = await env.DB.prepare(`SELECT id,url,body_text,image_url,press FROM news_articles
@@ -399,7 +405,7 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
     }
   }
   if (!backfill) try {
-    for (const item of (await googleNewsSearch(badukQuery, 1)).slice(0, 3)) candidates.push({ category: '바둑', item, source: 'GOOGLE' });
+    for (const item of (await googleNewsSearch(badukQuery, 30)).slice(0, 3)) candidates.push({ category: '바둑', item, source: 'GOOGLE' });
   } catch (error) {
     diagnostics.google_error = String(error?.message || error).slice(0, 120);
   }

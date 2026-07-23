@@ -41,9 +41,14 @@ export function normalizeText(value) {
     .replace(/[\t\f\v ]+/g, ' ')
     .replace(/ *\n */g, '\n')
     .replace(/\n{3,}/g, '\n\n')
+    .replace(/\s+([,.;:!?])/g, '$1')
+    .replace(/([가-힣])\s+([은는이가을를와과의에도만])(?=\s|[,.;:!?]|$)/gu, '$1$2')
     .replace(/\s+(['’”])(?=[은는이가을를와과의에도로](?:\s|[.,]))/gu, '$1')
+    .replace(/([가-힣])\s+([’”])/gu, '$1$2')
     .replace(/([가-힣]+(?:초등|중|고등))\s+학교/gu, '$1학교')
     .replace(/바둑\s+협회/gu, '바둑협회')
+    .replace(/대국\s+료/gu, '대국료')
+    .replace(/접\s+바둑/gu, '접바둑')
     .trim();
 }
 
@@ -177,6 +182,7 @@ export function validateThreeLineSummary(summary, title = '') {
 }
 
 export function isRejectedTitle(title = '') {
+  if (/^(?:카타고|바둑)$/i.test(normalizeText(title))) return true;
   if (/�/.test(title) || (String(title).match(/\?/g) || []).length >= 5) return true;
   if (/(?:시세\s*조회로|현명한\s*투자하세요|신청\s*및\s*.*(?:환급|상세)\s*안내|자동차월드)/i.test(title)) return true;
   return /(?:\[?[^\]\n]{0,20}(?:칼럼|사설|기고|시론|논단|오피니언)\]?|퇴근길\s*이슈|뉴스\s*브리핑|뉴스\s*잇\s*\(|뉴스\s*바이트|모닝픽|주요\s*뉴스\s*]|주요뉴스\s*…|미리보는\s*.*신문|증시\s*포커스|증시포커스|뉴스\s*새벽배송|\[\s*뉴스\s*(?:\.{2,}|…)|스포츠용어\s*산책)/i.test(title);
