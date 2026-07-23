@@ -3,13 +3,20 @@ import { ensureNewsDb, json } from '../../_lib/news-db.js';
 export async function onRequestGet({ env }) {
   try {
     await ensureNewsDb(env);
-    const [articles, run] = await Promise.all([
+    const [articles, run, categories, dates] = await Promise.all([
       env.DB.prepare(`SELECT COUNT(*) AS count, MAX(fetched_at) AS latest,
         SUM(CASE WHEN length(body_text)>=300 THEN 1 ELSE 0 END) AS body_ready,
         SUM(CASE WHEN summary_quality='full' THEN 1 ELSE 0 END) AS publishable,
         SUM(CASE WHEN image_url<>'' THEN 1 ELSE 0 END) AS with_image
         FROM news_articles`).first(),
       env.DB.prepare('SELECT started_at,finished_at,status,inserted_count,message FROM news_runs ORDER BY id DESC LIMIT 1').first()
+      ,env.DB.prepare(`SELECT category,COUNT(*) AS stored,
+        SUM(CASE WHEN summary_quality='full' THEN 1 ELSE 0 END) AS publishable
+        FROM news_articles WHERE COALESCE(NULLIF(published_at,''),fetched_at)>=datetime('now','-30 days') GROUP BY category`).all()
+      ,env.DB.prepare(`SELECT substr(COALESCE(NULLIF(published_at,''),fetched_at),1,10) AS day,COUNT(*) AS stored,
+        SUM(CASE WHEN summary_quality='full' THEN 1 ELSE 0 END) AS publishable
+        FROM news_articles WHERE COALESCE(NULLIF(published_at,''),fetched_at)>=datetime('now','-30 days')
+        GROUP BY day ORDER BY day DESC LIMIT 31`).all()
     ]);
     return json({
       ok: true,
@@ -19,6 +26,8 @@ export async function onRequestGet({ env }) {
       publishable: articles?.publishable || 0,
       with_image: articles?.with_image || 0,
       ai_bound: Boolean(env.AI),
+      categories: categories?.results || [],
+      dates: dates?.results || [],
       last_run: run || null
     });
   } catch (error) {

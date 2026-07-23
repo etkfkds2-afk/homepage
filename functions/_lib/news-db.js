@@ -55,6 +55,11 @@ CREATE TABLE IF NOT EXISTS news_popular_items (
   rank INTEGER NOT NULL DEFAULT 0,
   source TEXT NOT NULL DEFAULT '',
   collected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS news_summary_attempts (
+  url_key TEXT PRIMARY KEY,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_attempt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );`;
 
 export function json(data, status = 200) {

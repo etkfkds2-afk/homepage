@@ -140,13 +140,13 @@ async function fetchArticleText(url) {
   }
 }
 
-async function naverSearch(env, query, start = 1) {
+async function naverSearch(env, query, start = 1, display = 5) {
   if (!env.NAVER_CLIENT_ID || !env.NAVER_CLIENT_SECRET) {
     throw new Error('NAVER_CLIENT_ID 또는 NAVER_CLIENT_SECRET이 없습니다.');
   }
   const endpoint = new URL('https://openapi.naver.com/v1/search/news.json');
   endpoint.searchParams.set('query', query);
-  endpoint.searchParams.set('display', '5');
+  endpoint.searchParams.set('display', String(Math.min(Math.max(display, 1), 100)));
   endpoint.searchParams.set('start', String(start));
   endpoint.searchParams.set('sort', 'date');
   const response = await fetch(endpoint, {
@@ -159,11 +159,11 @@ async function naverSearch(env, query, start = 1) {
   return (await response.json()).items || [];
 }
 
-async function kakaoSearch(env, query, page = 1) {
+async function kakaoSearch(env, query, page = 1, size = 5) {
   if (!env.KAKAO_REST_API_KEY) return [];
   const endpoint = new URL('https://dapi.kakao.com/v2/search/web');
   endpoint.searchParams.set('query', query);
-  endpoint.searchParams.set('size', '5');
+  endpoint.searchParams.set('size', String(Math.min(Math.max(size, 1), 50)));
   endpoint.searchParams.set('page', String(page));
   endpoint.searchParams.set('sort', 'recency');
   const response = await fetch(endpoint, { headers: { Authorization: `KakaoAK ${env.KAKAO_REST_API_KEY}` } });
@@ -238,8 +238,23 @@ async function collectPopularity() {
   return rows;
 }
 
-async function collect(env) {
-  const diagnostics = { retry_attempted: 0, retry_repaired: 0, samples: [] };
+async function collectArchivedTop(slot) {
+  const rows = [];
+  const baseOffset = (slot % 10) * 3;
+  for (let extra = 0; extra < 3; extra += 1) {
+    const date = new Date(Date.now() - (baseOffset + extra) * 86400000);
+    const ymd = date.toISOString().slice(0, 10).replace(/-/g, '');
+    for (const [sid, category] of [['100','정치'],['101','경제'],['102','사회'],['103','생활/문화'],['104','세계']]) {
+      const url = `https://news.naver.com/main/ranking/popularDay.naver?mid=etc&sid1=${sid}&date=${ymd}`;
+      const top = (await popularPage(url, 'NAVER'))[0];
+      if (top) rows.push({ category, source: 'NAVER', item: { title: top.title, link: top.href, originallink: top.href, description: '', pubDate: date.toISOString() } });
+    }
+  }
+  return rows;
+}
+
+async function collect(env, { backfill = false } = {}) {
+  const diagnostics = { mode: backfill ? 'backfill' : 'scheduled', retry_attempted: 0, retry_repaired: 0, samples: [] };
   let aiRemaining = 2;
   const summarize = async (payload, detail) => {
     const useAi = aiRemaining > 0;
@@ -261,9 +276,10 @@ async function collect(env) {
   }
   const poisoned = (stored.results || []).filter(row => GENERIC_TITLES.has(row.title) || isRejectedTitle(row.title) || !validateThreeLineSummary(row.summary, row.title));
   if (poisoned.length) await env.DB.batch(poisoned.map(row => env.DB.prepare("UPDATE news_articles SET summary='',summary_quality='none' WHERE id=?").bind(row.id)));
-  const retryRows = await env.DB.prepare(`SELECT id,title,raw_summary,body_text FROM news_articles
-    WHERE summary_quality='none' AND length(body_text)>=300
-    ORDER BY CASE WHEN category='바둑' THEN 0 ELSE 1 END, fetched_at DESC LIMIT 16`).all();
+  const retryRows = await env.DB.prepare(`SELECT a.id,a.url_key,a.title,a.raw_summary,a.body_text FROM news_articles a
+    LEFT JOIN news_summary_attempts f ON f.url_key=a.url_key
+    WHERE a.summary_quality='none' AND length(a.body_text)>=300 AND COALESCE(f.attempts,0)<3
+    ORDER BY CASE WHEN a.category='바둑' THEN 0 ELSE 1 END, a.fetched_at DESC LIMIT 16`).all();
   for (const row of retryRows.results || []) {
     if (isRejectedTitle(row.title)) continue;
     const detail = {};
@@ -271,33 +287,55 @@ async function collect(env) {
     diagnostics.retry_attempted += 1;
     if (diagnostics.samples.length < 2) diagnostics.samples.push({ title: row.title, ...detail });
     if (validateThreeLineSummary(repaired, row.title)) {
-      await env.DB.prepare("UPDATE news_articles SET summary=?,summary_quality='full' WHERE id=?").bind(repaired, row.id).run();
+      await env.DB.batch([
+        env.DB.prepare("UPDATE news_articles SET summary=?,summary_quality='full' WHERE id=?").bind(repaired, row.id),
+        env.DB.prepare('DELETE FROM news_summary_attempts WHERE url_key=?').bind(row.url_key)
+      ]);
       diagnostics.retry_repaired += 1;
+    } else {
+      await env.DB.prepare(`INSERT INTO news_summary_attempts(url_key,attempts,last_attempt) VALUES(?,1,CURRENT_TIMESTAMP)
+        ON CONFLICT(url_key) DO UPDATE SET attempts=attempts+1,last_attempt=CURRENT_TIMESTAMP`).bind(row.url_key).run();
     }
   }
   const candidates = [];
-  const cursorRow = await env.DB.prepare("SELECT value FROM news_state WHERE key='backfill_cursor'").first();
+  const cursorKey = backfill ? 'history_cursor' : 'rotation_cursor';
+  const cursorRow = await env.DB.prepare('SELECT value FROM news_state WHERE key=?').bind(cursorKey).first();
   const slot = Number(cursorRow?.value || 0);
-  await env.DB.prepare("INSERT INTO news_state(key,value) VALUES('backfill_cursor',1) ON CONFLICT(key) DO UPDATE SET value=value+1").run();
-  const backfillStart = (slot % 20) * 5 + 1;
+  await env.DB.prepare('INSERT INTO news_state(key,value) VALUES(?,1) ON CONFLICT(key) DO UPDATE SET value=value+1').bind(cursorKey).run();
+  const backfillStart = backfill ? (slot % 10) * 100 + 1 : (slot % 100) * 10 + 1;
   const badukQuery = BADUK_SEARCHES[slot % BADUK_SEARCHES.length];
-  for (const [category, query] of SEARCHES) {
-    const effectiveQuery = category === '바둑' ? badukQuery : query;
-    const items = await naverSearch(env, effectiveQuery, category === '바둑' ? backfillStart : 1);
-    for (const item of items.slice(0, category === '바둑' ? 2 : 1)) candidates.push({ category, item, source: 'NAVER' });
+  const selectedSearches = backfill
+    ? SEARCHES.filter(([category]) => category === '바둑')
+    : SEARCHES;
+  for (const [category, query] of selectedSearches) {
+    const effectiveQuery = category === '바둑' ? (backfill ? '바둑' : badukQuery) : query;
+    const start = backfill ? backfillStart : (category === '바둑' ? backfillStart : 1);
+    const display = backfill ? 10 : 5;
+    const items = await naverSearch(env, effectiveQuery, start, display);
+    const take = backfill ? (category === '바둑' ? 5 : 2) : (category === '바둑' ? 2 : 1);
+    for (const item of items.slice(0, take)) candidates.push({ category, item, source: 'NAVER' });
     try {
-      const kakaoItems = await kakaoSearch(env, effectiveQuery, category === '바둑' ? (slot % 10) + 1 : 1);
-      for (const item of kakaoItems.slice(0, category === '바둑' ? 2 : 1)) candidates.push({ category, item, source: 'KAKAO' });
+      const page = backfill ? (slot % 10) * 5 + 1 : (category === '바둑' ? (slot % 10) + 1 : 1);
+      const kakaoItems = await kakaoSearch(env, effectiveQuery, page, backfill ? 10 : 5);
+      for (const item of kakaoItems.slice(0, take)) candidates.push({ category, item, source: 'KAKAO' });
     } catch (error) {
       diagnostics.kakao_error = String(error?.message || error).slice(0, 120);
     }
   }
-  try {
+  if (backfill) {
+    try {
+      candidates.push(...await collectArchivedTop(slot));
+      diagnostics.archive_candidates = candidates.length;
+    } catch (error) {
+      diagnostics.archive_error = String(error?.message || error).slice(0, 120);
+    }
+  }
+  if (!backfill) try {
     for (const item of (await googleNewsSearch(badukQuery)).slice(0, 3)) candidates.push({ category: '바둑', item, source: 'GOOGLE' });
   } catch (error) {
     diagnostics.google_error = String(error?.message || error).slice(0, 120);
   }
-  try {
+  if (!backfill) try {
     const popular = await collectPopularity();
     diagnostics.popular_found = popular.length;
     for (const row of popular.filter(row => row.rank <= 2)) candidates.push({
@@ -320,15 +358,14 @@ async function collect(env) {
     diagnostics.popular_error = String(error?.message || error).slice(0, 120);
   }
 
-  let inserted = 0;
-  for (const { category, item, source } of candidates) {
+  const processCandidate = async ({ category, item, source }) => {
     const preferredUrl = source === 'NAVER' && /naver\.com\//i.test(item.link || '') ? item.link : (item.originallink || item.link);
     const url = canonicalUrl(preferredUrl);
     const title = cleanTitle(item.title);
     const publishedAt = parseDate(item.pubDate);
-    if (!url || !title || GENERIC_TITLES.has(title) || isRejectedTitle(title) || !/^https?:\/\//.test(url)) continue;
-    if (!allowedCandidate(url, source)) continue;
-    if (publishedAt && Date.parse(publishedAt) < Date.now() - 30 * 86400000) continue;
+    if (!url || !title || GENERIC_TITLES.has(title) || isRejectedTitle(title) || !/^https?:\/\//.test(url)) return 0;
+    if (!allowedCandidate(url, source)) return 0;
+    if (publishedAt && Date.parse(publishedAt) < Date.now() - 30 * 86400000) return 0;
     const press = item.press || pressFromTitle(item.title);
     const urlKey = await sha256(url);
     const exists = await env.DB.prepare('SELECT id,image_url,summary_quality,raw_summary,body_text FROM news_articles WHERE url_key=?').bind(urlKey).first();
@@ -348,7 +385,7 @@ async function collect(env) {
           summary_quality=CASE WHEN ? THEN 'full' ELSE summary_quality END
           WHERE id=?`).bind(title, article.press, article.press, article.image, article.image, article.body, article.body, valid ? 1 : 0, repaired, valid ? 1 : 0, exists.id).run();
       }
-      continue;
+      return 0;
     }
 
     const rawSummary = stripHtml(item.description);
@@ -374,8 +411,10 @@ async function collect(env) {
       url, urlKey, title, articleSource(url, source, article.press || press), article.press || press, finalCategory, publishedAt, rawSummary,
       body, validSummary ? summary : '', validSummary ? 'full' : 'none', article.image
     ).run();
-    inserted += 1;
-  }
+    return 1;
+  };
+  diagnostics.candidates = candidates.length;
+  const inserted = (await Promise.all(candidates.map(processCandidate))).reduce((sum, value) => sum + value, 0);
   return { inserted, diagnostics };
 }
 
@@ -389,7 +428,8 @@ export async function onRequestPost({ request, env }) {
     const started = new Date().toISOString();
     const run = await env.DB.prepare("INSERT INTO news_runs(started_at,status) VALUES(?,'running') RETURNING id").bind(started).first();
     runId = run?.id;
-    const result = await collect(env);
+    const backfill = new URL(request.url).searchParams.get('backfill') === '1';
+    const result = await collect(env, { backfill });
     await env.DB.prepare("UPDATE news_runs SET finished_at=?,status='ok',inserted_count=? WHERE id=?")
       .bind(new Date().toISOString(), result.inserted, runId).run();
     return json({ ok: true, ...result });

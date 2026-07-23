@@ -90,8 +90,10 @@ jobs:
           runs=1
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then runs=10; fi
           for i in $(seq 1 "$runs"); do
+            endpoint="https://newsbrief-etkfkds2.pages.dev/api/news/collect"
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then endpoint="${endpoint}?backfill=1"; fi
             curl --fail-with-body --retry 3 --max-time 240 \
               -X POST \
               -H "Authorization: Bearer ${NEWSBRIEF_COLLECT_TOKEN}" \
-              https://newsbrief-etkfkds2.pages.dev/api/news/collect
+              "$endpoint"
           done
