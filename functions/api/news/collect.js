@@ -288,6 +288,23 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
   }
   const poisoned = (stored.results || []).filter(row => GENERIC_TITLES.has(row.title) || isRejectedTitle(row.title) || !validateThreeLineSummary(row.summary, row.title));
   if (poisoned.length) await env.DB.batch(poisoned.map(row => env.DB.prepare("UPDATE news_articles SET summary='',summary_quality='none' WHERE id=?").bind(row.id)));
+  if (repair) {
+    const weakRows = await env.DB.prepare(`SELECT id,url,body_text,image_url,press FROM news_articles
+      WHERE category='바둑' AND summary_quality='none' AND length(body_text)<300
+        AND lower(url) NOT LIKE '%sports.naver.com/%'
+      ORDER BY length(body_text) DESC, fetched_at DESC LIMIT 24`).all();
+    const recovered = await Promise.all((weakRows.results || []).map(async row => {
+      const article = await fetchArticleText(canonicalUrl(row.url));
+      if (article.body.length < 300) return 0;
+      await env.DB.prepare(`UPDATE news_articles SET body_text=?,
+        image_url=CASE WHEN ?<>'' THEN ? ELSE image_url END,
+        press=CASE WHEN ?<>'' THEN ? ELSE press END WHERE id=?`)
+        .bind(article.body, article.image, article.image, article.press, article.press, row.id).run();
+      return 1;
+    }));
+    diagnostics.body_recrawl_attempted = (weakRows.results || []).length;
+    diagnostics.body_recrawl_recovered = recovered.reduce((sum, value) => sum + value, 0);
+  }
   const retryRows = await env.DB.prepare(`SELECT a.id,a.url_key,a.title,a.raw_summary,a.body_text FROM news_articles a
     LEFT JOIN news_summary_attempts f ON f.url_key=a.url_key
     WHERE a.summary_quality='none' AND length(a.body_text)>=300 AND COALESCE(f.attempts,0)<?
