@@ -1,4 +1,4 @@
-import { normalizeText, validateThreeLineSummary } from '../../_lib/news-summary.js';
+import { isRejectedTitle, normalizeText, validateThreeLineSummary } from '../../_lib/news-summary.js';
 import { makeBestSummary } from '../../_lib/news-ai-summary.js';
 import {
   canonicalUrl, ensureNewsDb, isCollectorAuthorized, json, sha256
@@ -108,11 +108,12 @@ async function naverSearch(env, query) {
 async function collect(env) {
   const diagnostics = { retry_attempted: 0, retry_repaired: 0, samples: [] };
   const stored = await env.DB.prepare('SELECT id,title,summary FROM news_articles').all();
-  const poisoned = (stored.results || []).filter(row => GENERIC_TITLES.has(row.title) || !validateThreeLineSummary(row.summary, row.title));
+  const poisoned = (stored.results || []).filter(row => GENERIC_TITLES.has(row.title) || isRejectedTitle(row.title) || !validateThreeLineSummary(row.summary, row.title));
   if (poisoned.length) await env.DB.batch(poisoned.map(row => env.DB.prepare("UPDATE news_articles SET summary='',summary_quality='none' WHERE id=?").bind(row.id)));
   const retryRows = await env.DB.prepare(`SELECT id,title,raw_summary,body_text FROM news_articles
     WHERE summary_quality='none' AND length(body_text)>=300 ORDER BY fetched_at DESC LIMIT 16`).all();
   for (const row of retryRows.results || []) {
+    if (isRejectedTitle(row.title)) continue;
     const detail = {};
     const repaired = await makeBestSummary(env, { title: row.title, rawSummary: row.raw_summary, body: row.body_text }, detail);
     diagnostics.retry_attempted += 1;
@@ -132,7 +133,7 @@ async function collect(env) {
   for (const { category, item } of candidates) {
     const url = canonicalUrl(item.originallink || item.link);
     const title = cleanTitle(item.title);
-    if (!url || !title || GENERIC_TITLES.has(title) || !/^https?:\/\//.test(url)) continue;
+    if (!url || !title || GENERIC_TITLES.has(title) || isRejectedTitle(title) || !/^https?:\/\//.test(url)) continue;
     const press = pressFromTitle(item.title);
     const urlKey = await sha256(url);
     const exists = await env.DB.prepare('SELECT id,image_url,summary_quality,raw_summary,body_text FROM news_articles WHERE url_key=?').bind(urlKey).first();

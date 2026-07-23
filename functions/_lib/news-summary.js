@@ -131,7 +131,7 @@ const POISON_PATTERNS = [
 ];
 
 export function validateThreeLineSummary(summary, title = '') {
-  if (/(?:퇴근길\s*이슈|뉴스\s*브리핑|뉴스\s*잇\s*\(|뉴스\s*바이트|모닝픽|주요\s*뉴스\s*]|주요뉴스\s*…)/i.test(title)) return false;
+  if (isRejectedTitle(title)) return false;
   const lines = normalizeText(summary).split('\n').map(stripNumbering).filter(Boolean);
   if (lines.length !== 3) return false;
   const titleKey = comparisonKey(title);
@@ -147,4 +147,8 @@ export function validateThreeLineSummary(summary, title = '') {
     }
   }
   return !isNearDuplicate(lines[0], lines[1]) && !isNearDuplicate(lines[0], lines[2]) && !isNearDuplicate(lines[1], lines[2]);
+}
+
+export function isRejectedTitle(title = '') {
+  return /(?:퇴근길\s*이슈|뉴스\s*브리핑|뉴스\s*잇\s*\(|뉴스\s*바이트|모닝픽|주요\s*뉴스\s*]|주요뉴스\s*…|미리보는\s*.*신문|증시\s*포커스|증시포커스|뉴스\s*새벽배송)/i.test(title);
 }

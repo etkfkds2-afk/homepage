@@ -61,3 +61,10 @@ test('뉴스 프로그램 도입부와 묶음형 기사를 거부한다', () => 
   assert.equal(validateThreeLineSummary(intro, '이준영의 WE'), false);
   assert.equal(validateThreeLineSummary('1) 오늘의 이슈를 모아 제공합니다.\n2) 여러 소식이 온라인에서 관심을 모았습니다.\n3) 관련 인물들이 입장을 공개했다고 밝혔습니다.', '[퇴근길이슈] 오늘의 소식'), false);
 });
+
+test('신문 미리보기와 증시 묶음형 제목을 거부한다', () => {
+  const summary = '1) 첫 번째 시장 소식을 구체적인 사실에 따라 전달했다고 밝혔다.\n2) 두 번째 기업 소식을 별개의 사실에 따라 전달했다고 밝혔다.\n3) 세 번째 정치 소식을 또 다른 사실에 따라 전달했다고 밝혔다.';
+  assert.equal(validateThreeLineSummary(summary, '[미리보는 이데일리 신문]프로그램 매매 폭증'), false);
+  assert.equal(validateThreeLineSummary(summary, '[아주증시포커스] 중국 반도체기업들 IPO 러시'), false);
+  assert.equal(validateThreeLineSummary(summary, '뉴욕증시 반등 이끈 반도체주[뉴스 새벽배송]'), false);
+});
