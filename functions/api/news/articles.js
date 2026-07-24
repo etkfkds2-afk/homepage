@@ -20,38 +20,44 @@ const HOST_OUTLETS = {
   'yna.co.kr': '연합뉴스'
 };
 
-const BADUK_NAMES = ['신진서', '최정', '박정환', '변상일', '커제', '구쯔하오', '이세돌', '김은지', '카타고'];
-const ISSUE_STOPWORDS = new Set(['오늘', '이번', '관련', '전국', '한국', '중국', '세계', '프로', '기사', '대국', '승리', '패배', '소식', '전망', '발표']);
+const BADUK_NAMES = ['신진서', '최정', '박정환', '변상일', '커제', '구쯔하오', '이세돌', '김은지', '카타고', '한돌', 'NHN', '한국기원', '대한바둑협회'];
+const ISSUE_STOPWORDS = new Set(['오늘', '이번', '관련', '전국', '한국', '중국', '세계', '프로', '기사', '대국', '승리', '패배', '소식', '전망', '발표', '바둑']);
+const RESULT_WORDS = /(?:우승|준우승|결승|진출|승리|패배|개최|개막|폐막|공사|차질|중단|지원|교류|합동훈련|선발|입단)/;
 
-function issueKey(title, category) {
-  const text = normalizeText(title).replace(/[“”‘’'"()[\]{}:;,!?]/g, ' ');
+function issueKey(title, category, summary = '') {
+  const text = normalizeText(`${title} ${summary}`).replace(/[“”‘’'"()[\]{}:;,!?]/g, ' ');
   const names = BADUK_NAMES.filter(name => text.includes(name));
-  const event = text.match(/[가-힣A-Za-z0-9]{2,18}(?:바둑)?(?:대회|리그|기전|컵|배|선수권|오픈)/)?.[0] || '';
-  const round = text.match(/(?:예선|본선|8강|4강|준결승|결승|16강)/)?.[0] || '';
+  const event = text.match(/[가-힣A-Za-z0-9]{2,24}(?:바둑)?(?:대회|리그|기전|컵|배|선수권|오픈|스포츠교류|합동훈련)/)?.[0] || '';
+  const place = text.match(/[가-힣]{2,10}(?:시|군|구|읍|면)\s*[가-힣]{0,10}(?:공사|대회|리그)/)?.[0]?.replace(/\s+/g, '') || '';
+  const result = text.match(RESULT_WORDS)?.[0] || '';
   if (category === '바둑') {
-    if (names.length >= 2) return `대국:${names.slice(0, 2).sort().join('·')}:${event}:${round}`;
-    if (event) return `대회:${event}:${round}`;
-    if (names.length === 1) return `선수:${names[0]}:${round}`;
+    if (event) return `바둑|${[event, ...names.filter(name => !event.includes(name))].sort().join('|')}`;
+    if (names.length >= 2) return `바둑|${names.slice(0, 3).sort().join('|')}`;
+    if (names.length === 1 && result) return `바둑|${names[0]}|${result}`;
+    if (place) return `바둑|${place}`;
     return '';
   }
   const words = text.split(/\s+/).map(word => word.replace(/[^0-9A-Za-z가-힣]/g, ''))
     .filter(word => word.length >= 2 && !ISSUE_STOPWORDS.has(word) && !/^\d+$/.test(word));
-  if (words.length < 1) return '';
-  return `${category}:${words.slice(0, 3).join('·')}`;
+  return words.length >= 2 && result ? `${category}|${words.slice(0, 3).join('|')}` : '';
+}
+
+function issueLabel(key) {
+  return key.split('|').slice(1).filter(Boolean).join(' · ');
 }
 
 function buildIssues(items, category = '') {
   const groups = new Map();
   for (const item of items) {
-    const key = issueKey(item.title, item.category || category);
+    const key = issueKey(item.title, item.category || category, item.summary);
     if (!key) continue;
-    const group = groups.get(key) || { key, title: '', category: item.category, representative: item, related: [], count: 0, latest: item.published_at || item.fetched_at };
+    const group = groups.get(key) || { key, title: issueLabel(key), category: item.category, representative: item, related: [], count: 0, latest: item.published_at || item.fetched_at };
     group.count += 1;
     if (!group.title) group.title = key.split(':').slice(1).filter(Boolean).join(' · ').replace(/·/g, ' · ').replace(/\s+·\s+$/, '');
     if (group.representative.url_key !== item.url_key) group.related.push({ url_key: item.url_key, url: item.url, title: item.title, outlet: item.outlet });
     groups.set(key, group);
   }
-  return [...groups.values()].filter(group => group.count >= 2)
+  return [...groups.values()]
     .sort((a, b) => b.count - a.count || String(b.latest).localeCompare(String(a.latest)))
     .slice(0, 12);
 }
@@ -102,6 +108,7 @@ export async function onRequestGet({ request, env }) {
     const view = ['saved', 'hidden', 'popular', 'home'].includes(requestedView) ? requestedView : 'latest';
     const excludeBaduk = url.searchParams.get('exclude_baduk') === '1';
     const issues = url.searchParams.get('issues') === '1';
+    const issueKeyFilter = url.searchParams.get('issue_key') || '';
     const maxLimit = 300;
     const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 60, 1), maxLimit);
     const uid = userId(request);
@@ -196,8 +203,12 @@ export async function onRequestGet({ request, env }) {
       }
       accepted.push({ ...item, first, related: [], related_count: 0 });
     }
-    const items = accepted.slice(0, limit).map(({ first, ...item }) => item);
-    return json({ ok: true, items, issues: issues ? buildIssues(items, category) : [] });
+    const issueList = buildIssues(accepted, category);
+    const selected = issueKeyFilter
+      ? accepted.filter(item => issueKey(item.title, item.category || category, item.summary) === issueKeyFilter)
+      : accepted;
+    const items = selected.slice(0, issueKeyFilter ? 300 : limit).map(({ first, ...item }) => item);
+    return json({ ok: true, items, issues: issues ? issueList : [] });
   } catch (error) {
     return json({ ok: false, error: error.message }, 500);
   }
