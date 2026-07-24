@@ -52,11 +52,10 @@ function renderHero(){
   $('hot').innerHTML=state.heroItems.map((x,i)=>`<a class="hotchip" href="${esc(x.url)}" target="_blank" rel="noopener"><span class="hotrank">${String(i+1).padStart(2,'0')}</span><span class="hottext">${esc(x.title)}</span>${x.related_count?`<span class="hotrelated">관련 ${x.related_count+1}건</span>`:''}<span aria-hidden="true">↗</span></a>`).join('')||'<div class="empty">핵심 뉴스를 준비하고 있습니다.</div>';
 }
 function renderIssues(){
-  const show=Boolean(state.issueItems.length)&&!state.q&&['home','baduk','latest','popular'].includes(state.mode);
+  const show=Boolean(state.issueItems.length)&&!state.q&&['baduk','latest','popular'].includes(state.mode);
   $('issuesPanel').style.display=show?'block':'none';
   if(!show)return;
-  const baduk=state.mode==='baduk'||(state.mode==='home'&&state.heroTopic==='baduk');
-  $('issuesTitle').textContent=state.mode==='home'?'이번 주 이슈 키워드':state.mode==='baduk'?'바둑 이슈 키워드':state.mode==='popular'?'인기순 이슈 키워드':'최신순 이슈 키워드';
+  $('issuesTitle').textContent=state.mode==='baduk'?'바둑 이슈 키워드':state.mode==='popular'?'인기순 이슈 키워드':'최신순 이슈 키워드';
   $('issuesDesc').textContent='';
   $('clearIssue').style.display=state.issueKey?'inline-flex':'none';
   $('issues').innerHTML=state.issueItems.map(issue=>`<a class="issueCard" href="#issue-${encodeURIComponent(issue.key)}" data-issue-key="${esc(issue.key)}"><div class="issueName">${esc(issue.title)}</div><div class="issueMeta">관련 기사 ${issue.count}건 · 전체 카드 보기 ↓</div></a>`).join('')||'<div class="issueEmpty">아직 식별된 이슈가 없습니다.</div>';
@@ -71,7 +70,7 @@ function cardHtml(x){
 }
 function render(){
   nav();renderHero();renderIssues();
-  const labels={saved:['저장한 뉴스',''],popular:['인기순 뉴스 카드',''],baduk:['바둑 뉴스 카드',''],home:['이번 주 뉴스 카드','']};
+  const labels={saved:['저장한 뉴스',''],popular:['인기순 뉴스 카드',''],baduk:['바둑 뉴스 카드',''],home:['이번 주 뉴스 요약','']};
   const label=state.issueKey?['선택 이슈 기사','같은 이슈에 속한 기사 전체입니다.']:labels[state.mode]||(state.category?[`${state.category} 최신 뉴스`,'']:['최근 한 달 최신 뉴스','']);
   $('sectionTitle').innerHTML=`${esc(label[0])}${label[1]?`<span class="sectionDesc">${esc(label[1])}</span>`:''}`;
   const visible=state.items;
@@ -89,19 +88,16 @@ async function load({silent=false}={}){
   if(state.issueKey)p.set('issue_key',state.issueKey);
   try{
     if(state.mode==='home'&&!state.q&&!state.issueKey){
-      const common=state.heroTopic==='general'?'&exclude_baduk=1':'';
       const badukHome=state.heroTopic==='baduk';
       const heroUrl=badukHome
         ? '/api/news/articles?view=latest&category=%EB%B0%94%EB%91%91&limit=6&hours=168'
-        : `/api/news/articles?view=popular&limit=6&hours=24${common}`;
-      const cardsUrl=badukHome
-        ? '/api/news/articles?view=latest&category=%EB%B0%94%EB%91%91&limit=100&hours=168'
-        : `/api/news/articles?view=home&limit=30&hours=168${common}`;
-      const [home,popular]=await Promise.all([fetchJson(`${cardsUrl}&issues=1`),fetchJson(heroUrl)]);
+        : '/api/news/articles?view=popular&limit=6&hours=24&exclude_baduk=1';
+      const cardsUrl='/api/news/articles?view=latest&limit=30&hours=168&exclude_baduk=1';
+      const [home,popular]=await Promise.all([fetchJson(cardsUrl),fetchJson(heroUrl)]);
       if(requestId!==state.requestSeq)return;
       state.heroItems=popular.items||[];
       state.items=home.items||[];
-      state.issueItems=home.issues||[];
+      state.issueItems=[];
     }else{
       if(state.issueKey&&state.mode==='home'){
         p.set('hours','168');
