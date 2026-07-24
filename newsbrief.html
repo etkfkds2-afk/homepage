@@ -92,7 +92,9 @@ async function load({silent=false}={}){
       const heroUrl=badukHome
         ? '/api/news/articles?view=latest&category=%EB%B0%94%EB%91%91&limit=6&hours=168'
         : '/api/news/articles?view=popular&limit=6&hours=24&exclude_baduk=1';
-      const cardsUrl='/api/news/articles?view=latest&limit=30&hours=168&exclude_baduk=1';
+      const cardsUrl=badukHome
+        ? '/api/news/articles?view=latest&category=%EB%B0%94%EB%91%91&limit=30'
+        : '/api/news/articles?view=latest&limit=30&exclude_baduk=1';
       const [home,popular]=await Promise.all([fetchJson(cardsUrl),fetchJson(heroUrl)]);
       if(requestId!==state.requestSeq)return;
       state.heroItems=popular.items||[];
