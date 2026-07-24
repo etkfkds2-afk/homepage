@@ -103,6 +103,7 @@ async function load({silent=false}={}){
       state.items=home.items||[];
       state.issueItems=home.issues||[];
     }else{
+      if(state.issueKey&&state.mode==='home')p.set('hours','168');
       p.set('issues','1');
       const d=await fetchJson(`/api/news/articles?${p}`);if(requestId!==state.requestSeq)return;
       state.heroItems=[];state.items=d.items||[];state.issueItems=d.issues||[];

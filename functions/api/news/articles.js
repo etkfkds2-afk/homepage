@@ -109,6 +109,7 @@ export async function onRequestGet({ request, env }) {
     const excludeBaduk = url.searchParams.get('exclude_baduk') === '1';
     const issues = url.searchParams.get('issues') === '1';
     const issueKeyFilter = url.searchParams.get('issue_key') || '';
+    const issueCategory = issueKeyFilter.split('|')[0] || '';
     const maxLimit = 300;
     const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 60, 1), maxLimit);
     const uid = userId(request);
@@ -142,6 +143,11 @@ export async function onRequestGet({ request, env }) {
     if (category && CATEGORIES.has(category)) {
       where.push('a.category = ?');
       bindings.push(category);
+    } else if (issueKeyFilter && CATEGORIES.has(issueCategory)) {
+      // Home issue cards are built from a category-specific feed. Reapply
+      // that category when the user opens an issue from the home view.
+      where.push('a.category = ?');
+      bindings.push(issueCategory);
     }
     if (excludeBaduk && category !== '바둑') where.push("a.category <> '바둑'");
     if (query) {
@@ -158,7 +164,7 @@ export async function onRequestGet({ request, env }) {
     }
     // Similar stories are collapsed after the query. Read extra rows so that
     // deduplication does not make a requested 100/300 item page needlessly short.
-    const queryLimit = Math.min(limit * 3, 900);
+    const queryLimit = issueKeyFilter ? 900 : Math.min(limit * 3, 900);
     bindings.push(queryLimit);
 
     const order = view === 'popular'
