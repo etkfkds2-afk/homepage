@@ -48,6 +48,8 @@ test('화면은 이슈 목차와 기존 관련 보도 묶음을 함께 사용하
   const html = await readFile(new URL('../newsbrief.html', import.meta.url), 'utf8');
   assert.match(html, /issuesPanel/);
   assert.match(html, /관련 기사 \$\{issue\.count\}건/);
+  assert.match(html, /data-issue-key/);
+  assert.match(html, /scrollIntoView/);
   assert.match(html, /relatedHtml\(x\)/);
   assert.doesNotMatch(html, /issueRelated/);
 });
