@@ -8,8 +8,8 @@
 .issuePanel{margin:0 0 22px;padding:18px;border:1px solid rgba(15,23,42,.1);border-radius:20px;background:linear-gradient(135deg,#fff,#f8fafc);box-shadow:var(--shadow-sm)}.issueHead{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:12px}.issueTitle{font-size:17px;font-weight:950;letter-spacing:-.35px}.issueDesc{margin-top:3px;color:var(--muted);font-size:11.5px}.issueGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.issueCard{display:block;min-width:0;padding:13px;border:1px solid #e2e8f0;border-radius:15px;background:#fff;text-decoration:none;color:var(--text);transition:.15s}.issueCard:hover{border-color:#94a3b8;transform:translateY(-1px);box-shadow:var(--shadow-sm)}.issueName{font-size:14px;font-weight:900;line-height:1.35}.issueMeta{margin-top:7px;color:#0f766e;font-size:11px;font-weight:800}.issueEmpty{color:var(--muted);font-size:12px;padding:8px 2px}@media(max-width:680px){.issueGrid{grid-template-columns:1fr 1fr}.issuePanel{padding:14px}}@media(max-width:420px){.issueGrid{grid-template-columns:1fr}}
 </style><style>.card.issue-focus{outline:3px solid rgba(15,118,110,.3);outline-offset:3px;box-shadow:0 0 0 6px rgba(15,118,110,.08)}</style></head><body>
 <header class="top"><div><div class="brand" aria-label="NewsBrief"><span class="brand-news">News</span><span class="brand-brief">Brief</span></div><div class="tagline">오늘의 뉴스를 3줄로 정리해, 판단을 가볍게.<br>중요한 기사만 저장하고 미래의 나에게 남기세요.</div></div><div class="controls"><div class="modebar"><button class="pill on" data-view="home">홈</button><button class="pill baduk" data-view="baduk">바둑</button><button class="pill" data-view="latest">최신순</button><button class="pill" data-view="popular">인기순</button><button class="pill" data-view="saved">저장</button></div><div class="filterbar" id="categories"></div><form class="searchbar" id="search"><input id="query" aria-label="뉴스 검색"><button>검색</button></form></div></header>
-<section class="homehero" id="hero"><div class="home-date" id="date"></div><div class="hotcard"><div class="hothead"><div><span class="hotbadge">24H</span><span class="hotmeta" id="updated"></span><div class="hottitle">오늘의 핵심 뉴스</div></div><div class="hotmodes"><button class="pill on" type="button" data-hot="general">일반</button><button class="pill baduk" type="button" data-hot="baduk">바둑</button></div></div><div class="hotpage" id="hot"></div></div></section>
-<section class="issuePanel" id="issuesPanel" aria-labelledby="issuesTitle"><div class="issueHead"><div><div class="issueTitle" id="issuesTitle">이번 주 이슈</div><div class="issueDesc" id="issuesDesc">비슷한 기사를 하나의 사건으로 묶었습니다.</div></div><button class="pill" id="clearIssue" type="button" style="display:none">전체 이슈 보기</button></div><div class="issueGrid" id="issues"></div></section>
+<section class="homehero" id="hero"><div class="home-date" id="date"></div><div class="hotcard"><div class="hothead"><div><span class="hotbadge">24H</span><span class="hotmeta" id="updated"></span><div class="hottitle">오늘의 핵심뉴스</div></div><div class="hotmodes"><button class="pill on" type="button" data-hot="general">일반</button><button class="pill baduk" type="button" data-hot="baduk">바둑</button></div></div><div class="hotpage" id="hot"></div></div></section>
+<section class="issuePanel" id="issuesPanel" aria-labelledby="issuesTitle"><div class="issueHead"><div><div class="issueTitle" id="issuesTitle">이번 주 이슈 키워드</div><div class="issueDesc" id="issuesDesc"></div></div><button class="pill" id="clearIssue" type="button" style="display:none">전체 이슈 보기</button></div><div class="issueGrid" id="issues"></div></section>
 <div class="sectionTitle" id="sectionTitle">지금 주목할 뉴스</div><main class="grid" id="cards"><div class="empty">뉴스를 불러오는 중입니다.</div></main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script>
@@ -56,8 +56,8 @@ function renderIssues(){
   $('issuesPanel').style.display=show?'block':'none';
   if(!show)return;
   const baduk=state.mode==='baduk'||(state.mode==='home'&&state.heroTopic==='baduk');
-  $('issuesTitle').textContent=state.mode==='home'?'이번 주 이슈':state.mode==='baduk'?'최근 30일 바둑 이슈':state.mode==='popular'?'최근 한 달 인기 이슈':'최근 한 달 최신 이슈';
-  $('issuesDesc').textContent=baduk?'바둑 대회·대국·선수 관련 기사를 묶었습니다.':'비슷한 기사를 하나의 사건으로 묶었습니다.';
+  $('issuesTitle').textContent=state.mode==='home'?'이번 주 이슈 키워드':state.mode==='baduk'?'바둑 이슈 키워드':state.mode==='popular'?'인기순 이슈 키워드':'최신순 이슈 키워드';
+  $('issuesDesc').textContent='';
   $('clearIssue').style.display=state.issueKey?'inline-flex':'none';
   $('issues').innerHTML=state.issueItems.map(issue=>`<a class="issueCard" href="#issue-${encodeURIComponent(issue.key)}" data-issue-key="${esc(issue.key)}"><div class="issueName">${esc(issue.title)}</div><div class="issueMeta">관련 기사 ${issue.count}건 · 전체 카드 보기 ↓</div></a>`).join('')||'<div class="issueEmpty">아직 식별된 이슈가 없습니다.</div>';
 }
@@ -71,7 +71,7 @@ function cardHtml(x){
 }
 function render(){
   nav();renderHero();renderIssues();
-  const labels={saved:['저장한 뉴스',''],popular:['인기 기사 전체',''],baduk:['바둑 기사 전체',''],home:['이번 주 기사 전체','']};
+  const labels={saved:['저장한 뉴스',''],popular:['인기순 뉴스 카드',''],baduk:['바둑 뉴스 카드',''],home:['이번 주 뉴스 카드','']};
   const label=state.issueKey?['선택 이슈 기사','같은 이슈에 속한 기사 전체입니다.']:labels[state.mode]||(state.category?[`${state.category} 최신 뉴스`,'']:['최근 한 달 최신 뉴스','']);
   $('sectionTitle').innerHTML=`${esc(label[0])}${label[1]?`<span class="sectionDesc">${esc(label[1])}</span>`:''}`;
   const visible=state.items;
@@ -88,7 +88,7 @@ async function load({silent=false}={}){
   if(state.q)p.set('q',state.q);
   if(state.issueKey)p.set('issue_key',state.issueKey);
   try{
-    if(state.mode==='home'&&!state.q){
+    if(state.mode==='home'&&!state.q&&!state.issueKey){
       const common=state.heroTopic==='general'?'&exclude_baduk=1':'';
       const badukHome=state.heroTopic==='baduk';
       const heroUrl=badukHome

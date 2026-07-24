@@ -51,6 +51,7 @@ test('화면은 이슈 목차와 기존 관련 보도 묶음을 함께 사용하
   assert.match(html, /data-issue-key/);
   assert.match(html, /issue_key/);
   assert.match(html, /clearIssue/);
+  assert.match(html, /state\.mode==='home'&&!state\.q&&!state\.issueKey/);
   assert.match(html, /relatedHtml\(x\)/);
   assert.doesNotMatch(html, /issueRelated/);
 });
