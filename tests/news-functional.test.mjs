@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { onRequestGet } from '../functions/api/news/articles.js';
+import { isBadukRelevant } from '../functions/api/news/collect.js';
 
 test('정기 수집은 기존 게시 기사를 비노출 상태로 강등하지 않는다', async () => {
   const source = await readFile(new URL('../functions/api/news/collect.js', import.meta.url), 'utf8');
@@ -18,11 +19,23 @@ test('AI 호출은 일일 예산과 당일 차단 상태를 확인한다', async
 test('Anthropic은 바둑 전용이며 일일·평생 호출 상한을 적용한다', async () => {
   const collector = await readFile(new URL('../functions/api/news/collect.js', import.meta.url), 'utf8');
   const ai = await readFile(new URL('../functions/_lib/news-ai-summary.js', import.meta.url), 'utf8');
-  assert.match(collector, /DAILY_ANTHROPIC_CALL_LIMIT = 50/);
+  assert.match(collector, /DAILY_ANTHROPIC_CALL_LIMIT = 100/);
   assert.match(collector, /TOTAL_ANTHROPIC_CALL_LIMIT = 250/);
   assert.match(collector, /payload\.category === '바둑'/);
   assert.match(ai, /category === '바둑' && Boolean\(env\?\.ANTHROPIC_API_KEY\)/);
   assert.match(ai, /claude-haiku-4-5-20251001/);
+});
+
+test('바둑 검색에 섞인 무관한 기사는 Claude 대상으로 분류하지 않는다', () => {
+  assert.equal(isBadukRelevant('신진서, 카타고와 세 번째 대국', ''), true);
+  assert.equal(isBadukRelevant('희망과 절망', '신진서 9단이 한국기원에서 바둑 인공지능 카타고와 대국했다.'), true);
+  assert.equal(isBadukRelevant("tvN 드라마 응답하라 1988 다시보기", '박보검과 혜리가 출연한 가족 드라마가 시청률을 기록했다.'), false);
+});
+
+test('요약 실패 기사는 같은 날 반복 호출하지 않고 적게 시도한 순서로 순환한다', async () => {
+  const source = await readFile(new URL('../functions/api/news/collect.js', import.meta.url), 'utf8');
+  assert.match(source, /f\.last_attempt < datetime\('now','-20 hours'\)/);
+  assert.match(source, /COALESCE\(f\.attempts,0\), COALESCE\(f\.last_attempt,'1970-01-01'\)/);
 });
 
 test('숨김 목록은 현재 방문자의 숨긴 기사만 조회한다', async () => {

@@ -24,7 +24,7 @@ const BADUK_SEARCHES = [
 
 const GENERIC_TITLES = new Set(['이 시각 주요 뉴스', '오늘의 주요 뉴스', '주요 뉴스', '뉴스 브리핑']);
 const DAILY_AI_CALL_LIMIT = 4;
-const DAILY_ANTHROPIC_CALL_LIMIT = 50;
+const DAILY_ANTHROPIC_CALL_LIMIT = 100;
 // A lifetime cap, deliberately far below US$5 at the pinned Haiku model's
 // maximum request size. The Anthropic workspace spend limit remains the hard
 // billing-side stop.
@@ -34,11 +34,21 @@ const MAX_SCHEDULED_CANDIDATES = 10;
 const BODY_JUNK = /(?:무단전재|재배포\s*금지|저작권자|구독|로그인|회원가입|제보|관련기사|추천뉴스|많이\s*본\s*뉴스|기사제공|기자\s*[A-Z0-9._%+-]+@|기사의?\s*본문\s*내용|글자\s*크기|인쇄하기|공유하기)/i;
 const DEAD_PAGE = /(?:존재하지\s*않는\s*페이지|요청하신\s*페이지를\s*찾을\s*수\s*없|삭제된\s*기사|기사가\s*존재하지\s*않|page\s*not\s*found|\b404\b)/i;
 
+export function isBadukRelevant(title, body = '') {
+  const titleText = String(title || '');
+  if (/(?:바둑|대국|기전|한국기원|대한바둑협회|신진서|최정\s*9단|카타고|프로기사)/i.test(titleText)) return true;
+  const bodyText = String(body || '').slice(0, 5000);
+  const signals = [
+    /바둑/i, /한국기원/i, /대한바둑협회/i, /신진서/i, /최정\s*9단/i,
+    /카타고/i, /(?:프로|아마추어)\s*기사/i, /(?:본선|결승|예선)\s*대국/i, /바둑리그/i
+  ];
+  return signals.filter(pattern => pattern.test(bodyText)).length >= 2;
+}
+
 function classify(category, title, body = '') {
   const titleText = String(title || '');
   const bodyText = String(body || '').slice(0, 800);
-  const text = `${titleText} ${bodyText}`;
-  if (/(?:바둑|대국|기전|한국기원|신진서|최정\s*9단|카타고)/i.test(titleText)) return '바둑';
+  if (isBadukRelevant(titleText, bodyText)) return '바둑';
   const rules = [
     ['사회', /(?:폭행|살인|사망|숨진|경찰|검찰|법원|사건|사고|성매매|성범죄|조폭|검거|재판|수사|학교|교사|학생)/],
     ['경제', /(?:증시|주가|금리|환율|기업|투자|금융|부동산|아파트|원유|산업|수출|매출|순이익)/],
@@ -49,7 +59,7 @@ function classify(category, title, body = '') {
   ];
   return rules.find(([, pattern]) => pattern.test(titleText))?.[0]
     || rules.find(([, pattern]) => pattern.test(bodyText))?.[0]
-    || (/(?:바둑|대국|기전|한국기원|신진서|카타고)/i.test(text) ? '바둑' : category);
+    || (category === '바둑' ? '기타' : category);
 }
 
 function stripHtml(value) {
@@ -365,19 +375,31 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
   // disappear from the site. Repairs may replace a summary only after a new
   // summary has passed validation.
   if (repair) {
-    const weakRows = await env.DB.prepare(`SELECT id,url,body_text,image_url,press FROM news_articles
+    const weakRows = await env.DB.prepare(`SELECT id,url,title,body_text,image_url,press FROM news_articles
       WHERE category='바둑' AND summary_quality='none' AND length(body_text)<300
         AND lower(url) NOT LIKE '%sports.naver.com/%'
-      ORDER BY length(body_text) DESC, fetched_at DESC LIMIT 24`).all();
-    const recovered = await Promise.all((weakRows.results || []).map(async row => {
-      const article = await fetchArticleText(canonicalUrl(row.url));
-      if (article.body.length < 300) return 0;
+      ORDER BY length(body_text) DESC, fetched_at DESC LIMIT 12`).all();
+    const recovered = [];
+    for (const row of weakRows.results || []) {
+      let article = await fetchArticleText(canonicalUrl(row.url));
+      if (article.body.length < 300) {
+        try {
+          const matches = await naverSearch(env, `"${cleanTitle(row.title)}"`, 1, 3);
+          const match = matches.find(item => cleanTitle(item.title).replace(/[^0-9A-Za-z가-힣]/g, '')
+            === cleanTitle(row.title).replace(/[^0-9A-Za-z가-힣]/g, '')) || matches[0];
+          if (match) article = await fetchArticleText(canonicalUrl(match.link || match.originallink));
+        } catch {}
+      }
+      if (article.body.length < 300) {
+        recovered.push(0);
+        continue;
+      }
       await env.DB.prepare(`UPDATE news_articles SET body_text=?,
         image_url=CASE WHEN ?<>'' THEN ? ELSE image_url END,
         press=CASE WHEN ?<>'' THEN ? ELSE press END WHERE id=?`)
         .bind(article.body, article.image, article.image, article.press, article.press, row.id).run();
-      return 1;
-    }));
+      recovered.push(1);
+    }
     diagnostics.body_recrawl_attempted = (weakRows.results || []).length;
     diagnostics.body_recrawl_recovered = recovered.reduce((sum, value) => sum + value, 0);
   }
@@ -385,7 +407,9 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
   const retryRows = await env.DB.prepare(`SELECT a.id,a.url_key,a.title,a.raw_summary,a.body_text,a.category FROM news_articles a
     LEFT JOIN news_summary_attempts f ON f.url_key=a.url_key
     WHERE a.summary_quality='none' AND length(a.body_text)>=300 AND COALESCE(f.attempts,0)<?
-    ORDER BY CASE WHEN a.category='바둑' THEN 0 ELSE 1 END, length(a.body_text) DESC, a.fetched_at DESC LIMIT ?`)
+      AND (f.last_attempt IS NULL OR f.last_attempt < datetime('now','-20 hours'))
+    ORDER BY CASE WHEN a.category='바둑' THEN 0 ELSE 1 END,
+      COALESCE(f.attempts,0), COALESCE(f.last_attempt,'1970-01-01'), length(a.body_text) DESC LIMIT ?`)
     .bind(24, retryRowLimit).all();
   for (const row of retryRows.results || []) {
     if (isRejectedTitle(row.title)) continue;
