@@ -24,7 +24,7 @@ const BADUK_SEARCHES = [
 
 const GENERIC_TITLES = new Set(['이 시각 주요 뉴스', '오늘의 주요 뉴스', '주요 뉴스', '뉴스 브리핑']);
 const DAILY_AI_CALL_LIMIT = 4;
-const DAILY_ANTHROPIC_CALL_LIMIT = 100;
+const DAILY_ANTHROPIC_CALL_LIMIT = 200;
 // A lifetime cap, deliberately far below US$5 at the pinned Haiku model's
 // maximum request size. The Anthropic workspace spend limit remains the hard
 // billing-side stop.
@@ -340,7 +340,7 @@ async function collectArchivedTop(slot) {
   return rows;
 }
 
-async function collect(env, { backfill = false, repair = false, googleDiscoveries = [] } = {}) {
+async function collect(env, { backfill = false, repair = false, forceRetry = false, googleDiscoveries = [] } = {}) {
   const diagnostics = { mode: backfill ? 'backfill' : 'scheduled', retry_attempted: 0, retry_repaired: 0, samples: [] };
   let aiRetryRemaining = repair ? 4 : (backfill ? 3 : 2);
   let aiNewRemaining = repair ? 0 : (backfill ? 2 : 2);
@@ -407,10 +407,10 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
   const retryRows = await env.DB.prepare(`SELECT a.id,a.url_key,a.title,a.raw_summary,a.body_text,a.category FROM news_articles a
     LEFT JOIN news_summary_attempts f ON f.url_key=a.url_key
     WHERE a.summary_quality='none' AND length(a.body_text)>=300 AND COALESCE(f.attempts,0)<?
-      AND (f.last_attempt IS NULL OR f.last_attempt < datetime('now','-20 hours'))
+      AND (? OR f.last_attempt IS NULL OR f.last_attempt < datetime('now','-20 hours'))
     ORDER BY CASE WHEN a.category='바둑' THEN 0 ELSE 1 END,
       COALESCE(f.attempts,0), COALESCE(f.last_attempt,'1970-01-01'), length(a.body_text) DESC LIMIT ?`)
-    .bind(24, retryRowLimit).all();
+    .bind(24, forceRetry ? 1 : 0, retryRowLimit).all();
   for (const row of retryRows.results || []) {
     if (isRejectedTitle(row.title)) continue;
     const detail = {};
@@ -617,12 +617,13 @@ export async function onRequestPost({ request, env }) {
     const requestUrl = new URL(request.url);
     const backfill = requestUrl.searchParams.get('backfill') === '1';
     const repair = requestUrl.searchParams.get('repair') === '1';
+    const forceRetry = requestUrl.searchParams.get('force_retry') === '1';
     let payload = {};
     try {
       if ((request.headers.get('content-type') || '').includes('application/json')) payload = await request.json();
     } catch {}
     const googleDiscoveries = Array.isArray(payload?.googleDiscoveries) ? payload.googleDiscoveries : [];
-    const result = await collect(env, { backfill, repair, googleDiscoveries });
+    const result = await collect(env, { backfill, repair, forceRetry, googleDiscoveries });
     const warnings = Object.entries(result.diagnostics)
       .filter(([key, value]) => /_error$/.test(key) && value)
       .map(([key, value]) => `${key}: ${value}`);

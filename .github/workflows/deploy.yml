@@ -111,7 +111,7 @@ jobs:
           if [ "${{ inputs.backfill }}" = "true" ]; then runs=9; fi
           for i in $(seq 1 "$runs"); do
             endpoint="https://newsbrief-etkfkds2.pages.dev/api/news/collect"
-            if [ "${{ inputs.backfill }}" = "true" ]; then endpoint="${endpoint}?backfill=1"; fi
+            if [ "${{ inputs.backfill }}" = "true" ]; then endpoint="${endpoint}?backfill=1&force_retry=1"; fi
             curl --fail-with-body --retry 3 --max-time 240 \
               -X POST \
               -H "Authorization: Bearer ${NEWSBRIEF_COLLECT_TOKEN}" \
@@ -122,6 +122,6 @@ jobs:
               curl --fail-with-body --retry 3 --max-time 240 \
                 -X POST \
                 -H "Authorization: Bearer ${NEWSBRIEF_COLLECT_TOKEN}" \
-                "https://newsbrief-etkfkds2.pages.dev/api/news/collect?repair=1"
+                "https://newsbrief-etkfkds2.pages.dev/api/news/collect?repair=1&force_retry=1"
             done
           fi
