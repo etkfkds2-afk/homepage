@@ -52,6 +52,10 @@ function toGroups(parsed, articles) {
     indices.forEach(i => used.add(i));
     groups.push({ title, url_keys: indices.map(i => articles[i].url_key) });
   }
+  const leftover = articles.map((_, i) => i).filter(i => !used.has(i));
+  if (leftover.length) {
+    groups.push({ title: '기타', url_keys: leftover.map(i => articles[i].url_key), misc: true });
+  }
   return groups;
 }
 
@@ -97,8 +101,11 @@ async function classifyWithAnthropic(env, articles) {
 
 export async function classifyIssues(env, articles) {
   if (!articles.length) return [];
-  const useAnthropic = env?.NEWSBRIEF_USE_ANTHROPIC === '1' && Boolean(env?.ANTHROPIC_API_KEY);
-  if (useAnthropic) return classifyWithAnthropic(env, articles);
+  // Issue classification is one batched call/day, unlike per-article
+  // summaries — cheap enough to prefer Anthropic quality whenever a key is
+  // configured, independent of NEWSBRIEF_USE_ANTHROPIC (which only gates the
+  // much higher-frequency per-article summary path).
+  if (env?.ANTHROPIC_API_KEY) return classifyWithAnthropic(env, articles);
   if (env?.AI) return classifyWithWorkersAi(env, articles);
   return [];
 }

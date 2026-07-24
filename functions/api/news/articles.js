@@ -99,11 +99,14 @@ async function loadIssueCache(env, category) {
 
 function buildIssuesFromCache(items, cached) {
   const present = new Set(items.map(item => item.url_key));
-  return cached
+  const mapped = cached
     .map(group => ({ key: group.key, title: group.title, count: group.url_keys.filter(key => present.has(key)).length }))
-    .filter(group => group.count > 0)
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 12);
+    .filter(group => group.count > 0);
+  // The 기타 bucket (leftover singletons) can outnumber every real issue by
+  // count, so it is kept out of the count sort and appended last instead.
+  const misc = mapped.filter(group => group.key.endsWith('|ai:misc'));
+  const rest = mapped.filter(group => !group.key.endsWith('|ai:misc')).sort((a, b) => b.count - a.count);
+  return [...rest.slice(0, misc.length ? 11 : 12), ...misc].slice(0, 12);
 }
 
 function bigrams(value) {

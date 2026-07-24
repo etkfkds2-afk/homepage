@@ -36,16 +36,18 @@ export async function onRequestPost({ request, env }) {
     }
 
     const groups = await classifyIssues(env, articles);
-    const payload = groups.map((group, index) => ({ key: `${category}|ai:${index}`, title: group.title, url_keys: group.url_keys }));
+    const payload = groups.map((group, index) => ({
+      key: group.misc ? `${category}|ai:misc` : `${category}|ai:${index}`,
+      title: group.title,
+      url_keys: group.url_keys
+    }));
 
     await env.DB.prepare(
       `INSERT INTO news_issue_cache (category, payload, built_at) VALUES (?, ?, CURRENT_TIMESTAMP)
        ON CONFLICT(category) DO UPDATE SET payload = excluded.payload, built_at = CURRENT_TIMESTAMP`
     ).bind(category, JSON.stringify(payload)).run();
 
-    const provider = env?.NEWSBRIEF_USE_ANTHROPIC === '1' && env?.ANTHROPIC_API_KEY
-      ? 'anthropic'
-      : env?.AI ? 'workers-ai' : 'none';
+    const provider = env?.ANTHROPIC_API_KEY ? 'anthropic' : env?.AI ? 'workers-ai' : 'none';
 
     return json({
       ok: true,
