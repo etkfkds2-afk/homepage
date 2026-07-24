@@ -60,18 +60,6 @@ function toGroups(parsed, articles) {
   return groups;
 }
 
-const WORKERS_AI_JSON_SCHEMA = {
-  type: 'array',
-  items: {
-    type: 'object',
-    properties: {
-      title: { type: 'string' },
-      indices: { type: 'array', items: { type: 'integer' } }
-    },
-    required: ['title', 'indices']
-  }
-};
-
 async function classifyWithWorkersAi(env, articles) {
   const result = await env.AI.run(WORKERS_AI_CLASSIFY_MODEL, {
     messages: [
@@ -79,8 +67,7 @@ async function classifyWithWorkersAi(env, articles) {
       { role: 'user', content: buildListing(articles) }
     ],
     max_tokens: 4096,
-    temperature: 0,
-    response_format: { type: 'json_schema', json_schema: WORKERS_AI_JSON_SCHEMA }
+    temperature: 0
   });
   const text = result?.response || result?.result?.response || '';
   const parsed = extractJsonArray(text);
