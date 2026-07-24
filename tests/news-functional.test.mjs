@@ -50,7 +50,10 @@ test('홈 이슈 필터는 이슈 키의 카테고리와 동일한 기간을 재
   assert.match(source, /issueCategory = issueKeyFilter\.split\('\|'\)\[0\]/);
   assert.match(source, /CATEGORIES\.has\(issueCategory\)/);
   assert.match(source, /const queryLimit = issueKeyFilter \? 900/);
-  assert.match(page, /state\.issueKey&&state\.mode==='home'\)p\.set\('hours','168'\)/);
+  assert.match(page, /state\.issueKey&&state\.mode==='home'/);
+  assert.match(page, /p\.set\('hours','168'\)/);
+  assert.match(page, /startsWith\('바둑\|'/);
+  assert.match(page, /p\.set\('view','latest'\)/);
 });
 
 test('화면은 이슈 목차와 기존 관련 보도 묶음을 함께 사용하되 중복 제목 목록을 만들지 않는다', async () => {
