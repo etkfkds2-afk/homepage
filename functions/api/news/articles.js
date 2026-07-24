@@ -235,7 +235,9 @@ export async function onRequestGet({ request, env }) {
       }
       accepted.push({ ...item, first, related: [], related_count: 0 });
     }
-    const cachedIssues = category === '바둑' ? await loadIssueCache(env, category) : null;
+    const cachedIssues = category === '바둑'
+      ? await loadIssueCache(env, category)
+      : (!category && excludeBaduk) ? await loadIssueCache(env, '일반') : null;
     const issueList = cachedIssues ? buildIssuesFromCache(accepted, cachedIssues) : buildIssues(accepted, category);
     let selected = accepted;
     if (issueKeyFilter) {

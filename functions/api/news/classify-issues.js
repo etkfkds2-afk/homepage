@@ -2,7 +2,7 @@ import { ensureNewsDb, isCollectorAuthorized, json } from '../../_lib/news-db.js
 import { CONTENT_QUALITY_FILTERS } from './articles.js';
 import { classifyIssues } from '../../_lib/news-issue-classify.js';
 
-const SUPPORTED_CATEGORIES = new Set(['바둑', '최신순', '인기순']);
+const SUPPORTED_CATEGORIES = new Set(['바둑', '일반']);
 
 function loadExistingPayload(row) {
   if (!row) return [];
@@ -28,7 +28,7 @@ export async function onRequestPost({ request, env }) {
     if (dbCategory) {
       where.push('a.category = ?');
       bindings.push(dbCategory);
-    } else if (category === '최신순') {
+    } else if (category === '일반') {
       where.push("a.category <> '바둑'");
     }
     bindings.push(400);
