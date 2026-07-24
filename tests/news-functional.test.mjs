@@ -16,14 +16,25 @@ test('AI 호출은 일일 예산과 당일 차단 상태를 확인한다', async
   assert.match(source, /ai_blocked/);
 });
 
-test('Anthropic은 바둑 전용이며 일일·평생 호출 상한을 적용한다', async () => {
+test('Anthropic은 바둑 전용이며 평시·백필·누적 호출 상한을 적용한다', async () => {
   const collector = await readFile(new URL('../functions/api/news/collect.js', import.meta.url), 'utf8');
   const ai = await readFile(new URL('../functions/_lib/news-ai-summary.js', import.meta.url), 'utf8');
-  assert.match(collector, /DAILY_ANTHROPIC_CALL_LIMIT = 200/);
-  assert.match(collector, /TOTAL_ANTHROPIC_CALL_LIMIT = 250/);
+  assert.match(collector, /DAILY_ANTHROPIC_CALL_LIMIT = 12/);
+  assert.match(collector, /BACKFILL_ANTHROPIC_CALL_LIMIT = 200/);
+  assert.match(collector, /TOTAL_ANTHROPIC_CALL_LIMIT = 600/);
   assert.match(collector, /payload\.category === '바둑'/);
   assert.match(ai, /category === '바둑' && Boolean\(env\?\.ANTHROPIC_API_KEY\)/);
   assert.match(ai, /claude-haiku-4-5-20251001/);
+});
+
+test('대량 백필은 CPU 제한을 피하도록 작은 묶음으로 처리한다', async () => {
+  const workflow = await readFile(new URL('../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  const collector = await readFile(new URL('../functions/api/news/collect.js', import.meta.url), 'utf8');
+  assert.match(collector, /MAINTENANCE_BATCH_SIZE = 40/);
+  assert.match(collector, /uniqueCandidates\.slice\(0, 8\)/);
+  assert.match(collector, /repair \? 4 : \(backfill \? 4 : 3\)/);
+  assert.match(workflow, /then runs=18/);
+  assert.match(workflow, /seq 1 10/);
 });
 
 test('바둑 검색에 섞인 무관한 기사는 Claude 대상으로 분류하지 않는다', () => {

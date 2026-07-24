@@ -24,12 +24,13 @@ const BADUK_SEARCHES = [
 
 const GENERIC_TITLES = new Set(['이 시각 주요 뉴스', '오늘의 주요 뉴스', '주요 뉴스', '뉴스 브리핑']);
 const DAILY_AI_CALL_LIMIT = 4;
-const DAILY_ANTHROPIC_CALL_LIMIT = 200;
-// A lifetime cap, deliberately far below US$5 at the pinned Haiku model's
-// maximum request size. The Anthropic workspace spend limit remains the hard
-// billing-side stop.
-const TOTAL_ANTHROPIC_CALL_LIMIT = 250;
+const DAILY_ANTHROPIC_CALL_LIMIT = 12;
+const BACKFILL_ANTHROPIC_CALL_LIMIT = 200;
+// This circuit breaker limits accidental runaway usage. The Anthropic workspace
+// spend limit remains the authoritative US$5 billing-side stop.
+const TOTAL_ANTHROPIC_CALL_LIMIT = 600;
 const MAX_SCHEDULED_CANDIDATES = 10;
+const MAINTENANCE_BATCH_SIZE = 40;
 
 const BODY_JUNK = /(?:무단전재|재배포\s*금지|저작권자|구독|로그인|회원가입|제보|관련기사|추천뉴스|많이\s*본\s*뉴스|기사제공|기자\s*[A-Z0-9._%+-]+@|기사의?\s*본문\s*내용|글자\s*크기|인쇄하기|공유하기)/i;
 const DEAD_PAGE = /(?:존재하지\s*않는\s*페이지|요청하신\s*페이지를\s*찾을\s*수\s*없|삭제된\s*기사|기사가\s*존재하지\s*않|page\s*not\s*found|\b404\b)/i;
@@ -286,7 +287,7 @@ async function reserveAiCall(env, diagnostics) {
   return true;
 }
 
-async function reserveAnthropicCall(env, diagnostics) {
+async function reserveAnthropicCall(env, diagnostics, forceRetry = false) {
   const day = new Date().toISOString().slice(0, 10);
   const dayRow = await env.DB.prepare("SELECT value FROM news_state WHERE key='anthropic_budget_day'").first();
   if (String(dayRow?.value || '') !== day) {
@@ -301,10 +302,12 @@ async function reserveAnthropicCall(env, diagnostics) {
   ]);
   const daily = Number(dailyRow?.value || 0);
   const total = Number(totalRow?.value || 0);
-  if (daily >= DAILY_ANTHROPIC_CALL_LIMIT || total >= TOTAL_ANTHROPIC_CALL_LIMIT) {
+  const dailyLimit = forceRetry ? BACKFILL_ANTHROPIC_CALL_LIMIT : DAILY_ANTHROPIC_CALL_LIMIT;
+  if (daily >= dailyLimit || total >= TOTAL_ANTHROPIC_CALL_LIMIT) {
     diagnostics.anthropic_budget_exhausted = true;
     diagnostics.anthropic_calls_today = daily;
     diagnostics.anthropic_calls_total = total;
+    diagnostics.anthropic_daily_limit = dailyLimit;
     return false;
   }
   await env.DB.batch([
@@ -313,6 +316,7 @@ async function reserveAnthropicCall(env, diagnostics) {
   ]);
   diagnostics.anthropic_calls_today = daily + 1;
   diagnostics.anthropic_calls_total = total + 1;
+  diagnostics.anthropic_daily_limit = dailyLimit;
   return true;
 }
 
@@ -350,7 +354,7 @@ async function collect(env, { backfill = false, repair = false, forceRetry = fal
     let useAi = Boolean(env.AI || wantsAnthropic) && payload.category === '바둑'
       && (purpose === 'retry' ? aiRetryRemaining > 0 : aiNewRemaining > 0);
     if (useAi) useAi = wantsAnthropic
-      ? await reserveAnthropicCall(env, diagnostics)
+      ? await reserveAnthropicCall(env, diagnostics, forceRetry)
       : await reserveAiCall(env, diagnostics);
     if (useAi && purpose === 'retry') aiRetryRemaining -= 1;
     if (useAi && purpose !== 'retry') aiNewRemaining -= 1;
@@ -360,16 +364,27 @@ async function collect(env, { backfill = false, repair = false, forceRetry = fal
     }
     return summary;
   };
-  const stored = await env.DB.prepare('SELECT id,title,summary,body_text,category FROM news_articles').all();
+  // Maintenance is deliberately bounded. Scanning and updating the complete
+  // archive on every request exhausted the Pages Worker CPU during backfills.
+  const maintenanceCursor = await env.DB.prepare("SELECT value FROM news_state WHERE key='maintenance_cursor'").first();
+  const maintenanceAfter = Number(maintenanceCursor?.value || 0);
+  let stored = await env.DB.prepare(`SELECT id,title,summary,body_text,category,url,source,press FROM news_articles
+    WHERE id>? ORDER BY id LIMIT ?`).bind(maintenanceAfter, MAINTENANCE_BATCH_SIZE).all();
+  if (!(stored.results || []).length && maintenanceAfter > 0) {
+    stored = await env.DB.prepare(`SELECT id,title,summary,body_text,category,url,source,press FROM news_articles
+      ORDER BY id LIMIT ?`).bind(MAINTENANCE_BATCH_SIZE).all();
+  }
   for (const row of stored.results || []) {
     const fixedCategory = classify(row.category, row.title, row.body_text);
     if (fixedCategory !== row.category) await env.DB.prepare('UPDATE news_articles SET category=? WHERE id=?').bind(fixedCategory, row.id).run();
+    if (['NAVER', 'KAKAO', 'GOOGLE'].includes(row.source)) {
+      const fixedSource = articleSource(row.url, row.source, row.press);
+      if (fixedSource !== row.source) await env.DB.prepare('UPDATE news_articles SET source=? WHERE id=?').bind(fixedSource, row.id).run();
+    }
   }
-  const mislabeled = await env.DB.prepare("SELECT id,url,source,press FROM news_articles WHERE source IN ('NAVER','KAKAO','GOOGLE')").all();
-  for (const row of mislabeled.results || []) {
-    const fixed = articleSource(row.url, row.source, row.press);
-    if (fixed !== row.source) await env.DB.prepare('UPDATE news_articles SET source=? WHERE id=?').bind(fixed, row.id).run();
-  }
+  const lastMaintainedId = (stored.results || []).at(-1)?.id || 0;
+  await env.DB.prepare("INSERT INTO news_state(key,value) VALUES('maintenance_cursor',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+    .bind(lastMaintainedId).run();
   // Never demote an already-published article during a routine collection.
   // Validation rules evolve, and destructive revalidation made valid cards
   // disappear from the site. Repairs may replace a summary only after a new
@@ -378,7 +393,7 @@ async function collect(env, { backfill = false, repair = false, forceRetry = fal
     const weakRows = await env.DB.prepare(`SELECT id,url,title,body_text,image_url,press FROM news_articles
       WHERE category='바둑' AND summary_quality='none' AND length(body_text)<300
         AND lower(url) NOT LIKE '%sports.naver.com/%'
-      ORDER BY length(body_text) DESC, fetched_at DESC LIMIT 12`).all();
+      ORDER BY length(body_text) DESC, fetched_at DESC LIMIT 4`).all();
     const recovered = [];
     for (const row of weakRows.results || []) {
       let article = await fetchArticleText(canonicalUrl(row.url));
@@ -403,7 +418,7 @@ async function collect(env, { backfill = false, repair = false, forceRetry = fal
     diagnostics.body_recrawl_attempted = (weakRows.results || []).length;
     diagnostics.body_recrawl_recovered = recovered.reduce((sum, value) => sum + value, 0);
   }
-  const retryRowLimit = repair ? 12 : (backfill ? 8 : 4);
+  const retryRowLimit = repair ? 4 : (backfill ? 4 : 3);
   const retryRows = await env.DB.prepare(`SELECT a.id,a.url_key,a.title,a.raw_summary,a.body_text,a.category FROM news_articles a
     LEFT JOIN news_summary_attempts f ON f.url_key=a.url_key
     WHERE a.summary_quality='none' AND length(a.body_text)>=300 AND COALESCE(f.attempts,0)<?
@@ -595,7 +610,7 @@ async function collect(env, { backfill = false, repair = false, forceRetry = fal
     candidateUrls.add(key);
     uniqueCandidates.push(candidate);
   }
-  const limitedCandidates = backfill ? uniqueCandidates.slice(0, 20) : uniqueCandidates.slice(0, MAX_SCHEDULED_CANDIDATES);
+  const limitedCandidates = backfill ? uniqueCandidates.slice(0, 8) : uniqueCandidates.slice(0, MAX_SCHEDULED_CANDIDATES);
   diagnostics.candidates = candidates.length;
   diagnostics.unique_candidates = uniqueCandidates.length;
   diagnostics.processed_candidates = limitedCandidates.length;

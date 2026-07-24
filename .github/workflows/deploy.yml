@@ -108,7 +108,9 @@ jobs:
           NEWSBRIEF_COLLECT_TOKEN: ${{ secrets.NEWSBRIEF_COLLECT_TOKEN }}
         run: |
           runs=0
-          if [ "${{ inputs.backfill }}" = "true" ]; then runs=9; fi
+          # Backfills use more small requests instead of a few large requests so
+          # each Pages Worker invocation stays below its CPU time limit.
+          if [ "${{ inputs.backfill }}" = "true" ]; then runs=18; fi
           for i in $(seq 1 "$runs"); do
             endpoint="https://newsbrief-etkfkds2.pages.dev/api/news/collect"
             if [ "${{ inputs.backfill }}" = "true" ]; then endpoint="${endpoint}?backfill=1&force_retry=1"; fi
@@ -118,7 +120,7 @@ jobs:
               "$endpoint"
           done
           if [ "${{ inputs.backfill }}" = "true" ]; then
-            for i in $(seq 1 5); do
+            for i in $(seq 1 10); do
               curl --fail-with-body --retry 3 --max-time 240 \
                 -X POST \
                 -H "Authorization: Bearer ${NEWSBRIEF_COLLECT_TOKEN}" \
