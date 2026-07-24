@@ -48,8 +48,12 @@ if (!response.ok) {
   try {
     const payload = JSON.parse(result);
     if (payload.status === 'degraded') {
-      console.error(`Collector degraded: ${(payload.warnings || []).join(', ')}`);
-      process.exitCode = 2;
+      const warning = `Collector degraded: ${(payload.warnings || []).join(', ')}`;
+      console.warn(`::warning::${warning}`);
+      // Optional providers may be unavailable while the licensed Naver/Kakao
+      // collection still succeeds. Keep the workflow green when articles were
+      // inserted, but retain the degraded status and warning in D1 and logs.
+      if (!Number(payload.inserted || 0)) process.exitCode = 2;
     }
   } catch {
     console.error('Collector returned a non-JSON response');

@@ -40,3 +40,9 @@ test('D1 UTC 시각 문자열을 UTC로 해석한다', async () => {
   const html = await readFile(new URL('../newsbrief.html', import.meta.url), 'utf8');
   assert.match(html, /replace\(' ','T'\).*Z/);
 });
+
+test('보조 공급자 장애 중 신규 기사가 등록되면 경고만 남긴다', async () => {
+  const script = await readFile(new URL('../scripts/google-news-discovery.mjs', import.meta.url), 'utf8');
+  assert.match(script, /::warning::/);
+  assert.match(script, /if \(!Number\(payload\.inserted \|\| 0\)\) process\.exitCode = 2/);
+});
