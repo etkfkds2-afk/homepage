@@ -12,10 +12,10 @@ export async function onRequestGet({ env }) {
       env.DB.prepare('SELECT started_at,finished_at,status,inserted_count,message FROM news_runs ORDER BY id DESC LIMIT 1').first()
       ,env.DB.prepare(`SELECT category,COUNT(*) AS stored,
         SUM(CASE WHEN summary_quality='full' THEN 1 ELSE 0 END) AS publishable
-        FROM news_articles WHERE COALESCE(NULLIF(published_at,''),fetched_at)>=datetime('now','-30 days') GROUP BY category`).all()
+        FROM news_articles WHERE datetime(COALESCE(NULLIF(published_at,''),fetched_at))>=datetime('now','-30 days') GROUP BY category`).all()
       ,env.DB.prepare(`SELECT substr(COALESCE(NULLIF(published_at,''),fetched_at),1,10) AS day,COUNT(*) AS stored,
         SUM(CASE WHEN summary_quality='full' THEN 1 ELSE 0 END) AS publishable
-        FROM news_articles WHERE COALESCE(NULLIF(published_at,''),fetched_at)>=datetime('now','-30 days')
+        FROM news_articles WHERE datetime(COALESCE(NULLIF(published_at,''),fetched_at))>=datetime('now','-30 days')
         GROUP BY day ORDER BY day DESC LIMIT 31`).all()
       ,env.DB.prepare(`SELECT
         COUNT(*) AS stored,
@@ -27,7 +27,7 @@ export async function onRequestGet({ env }) {
         SUM(CASE WHEN a.title LIKE '%칼럼%' OR a.title LIKE '%사설%' OR a.title LIKE '%기고%'
           OR a.title LIKE '%시론%' OR a.title LIKE '%논단%' OR a.title LIKE '%오피니언%' THEN 1 ELSE 0 END) AS opinion
         FROM news_articles a LEFT JOIN news_summary_attempts f ON f.url_key=a.url_key
-        WHERE a.category='바둑' AND COALESCE(NULLIF(a.published_at,''),a.fetched_at)>=datetime('now','-30 days')`).first()
+        WHERE a.category='바둑' AND datetime(COALESCE(NULLIF(a.published_at,''),a.fetched_at))>=datetime('now','-30 days')`).first()
     ]);
     return json({
       ok: true,

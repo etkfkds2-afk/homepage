@@ -23,7 +23,7 @@ export async function onRequestPost({ request, env }) {
     if (!SUPPORTED_CATEGORIES.has(category)) return json({ error: `지원하지 않는 category: ${category}` }, 400);
 
     const dbCategory = category === '바둑' ? '바둑' : null;
-    const where = [...CONTENT_QUALITY_FILTERS, "COALESCE(NULLIF(a.published_at,''),a.fetched_at) >= datetime('now','-30 days')"];
+    const where = [...CONTENT_QUALITY_FILTERS, "datetime(COALESCE(NULLIF(a.published_at,''),a.fetched_at)) >= datetime('now','-30 days')"];
     const bindings = [];
     if (dbCategory) {
       where.push('a.category = ?');
@@ -38,7 +38,7 @@ export async function onRequestPost({ request, env }) {
         SELECT a.url_key, a.title, a.summary, a.published_at, a.fetched_at
         FROM news_articles a
         WHERE ${where.join(' AND ')}
-        ORDER BY COALESCE(NULLIF(a.published_at,''), a.fetched_at) DESC
+        ORDER BY datetime(COALESCE(NULLIF(a.published_at,''), a.fetched_at)) DESC
         LIMIT ?
       `).bind(...bindings).all(),
       env.DB.prepare('SELECT payload FROM news_issue_cache WHERE category=?').bind(category).first()

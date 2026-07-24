@@ -183,9 +183,9 @@ export async function onRequestGet({ request, env }) {
     }
     if (view === 'saved') where.push('s.url_key IS NOT NULL');
     if (view === 'popular') where.push('p.title IS NOT NULL');
-    if (!['saved', 'hidden'].includes(view)) where.push("COALESCE(NULLIF(a.published_at,''),a.fetched_at) >= datetime('now','-30 days')");
+    if (!['saved', 'hidden'].includes(view)) where.push("datetime(COALESCE(NULLIF(a.published_at,''),a.fetched_at)) >= datetime('now','-30 days')");
     if (hours > 0 && !['saved', 'hidden'].includes(view)) {
-      where.push("COALESCE(NULLIF(a.published_at,''),a.fetched_at) >= datetime('now', ?)");
+      where.push("datetime(COALESCE(NULLIF(a.published_at,''),a.fetched_at)) >= datetime('now', ?)");
       bindings.push(`-${hours} hours`);
     }
     // Similar stories are collapsed after the query. Read extra rows so that
@@ -194,10 +194,10 @@ export async function onRequestGet({ request, env }) {
     bindings.push(queryLimit);
 
     const order = view === 'popular'
-      ? "p.score DESC, COALESCE(NULLIF(a.published_at,''),a.fetched_at) DESC"
+      ? "p.score DESC, datetime(COALESCE(NULLIF(a.published_at,''),a.fetched_at)) DESC"
       : view === 'home'
-        ? "CASE WHEN p.title IS NULL THEN 0 ELSE 1 END DESC, p.score DESC, COALESCE(NULLIF(a.published_at,''),a.fetched_at) DESC"
-      : "COALESCE(NULLIF(a.published_at,''), a.fetched_at) DESC";
+        ? "CASE WHEN p.title IS NULL THEN 0 ELSE 1 END DESC, p.score DESC, datetime(COALESCE(NULLIF(a.published_at,''),a.fetched_at)) DESC"
+      : "datetime(COALESCE(NULLIF(a.published_at,''), a.fetched_at)) DESC";
 
     const result = await env.DB.prepare(`
       SELECT a.id, a.url, a.url_key, a.title, a.source, a.press, a.category,
