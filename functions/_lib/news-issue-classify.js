@@ -66,7 +66,7 @@ async function classifyWithWorkersAi(env, articles) {
   });
   const text = result?.response || result?.result?.response || '';
   const parsed = extractJsonArray(text);
-  if (!parsed) throw new Error('Cloudflare AI 응답을 JSON으로 해석하지 못했습니다.');
+  if (!parsed) throw new Error(`Cloudflare AI 응답을 JSON으로 해석하지 못했습니다: ${text.slice(0, 300)}`);
   return toGroups(parsed, articles);
 }
 
