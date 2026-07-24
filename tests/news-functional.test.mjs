@@ -53,7 +53,7 @@ test('이슈 필터는 기간 제한 없이 전체 관련 기사를 보여준다
   // Clicking an issue tile must not carry the sub-view's own hours window
   // (e.g. 주간's 168h) into the filtered result, or articles belonging to
   // the same issue but older than that window would be silently dropped.
-  assert.match(page, /sub==='weekly'&&!state\.issueKey/);
+  assert.match(page, /if\(!state\.issueKey\)\{\s*if\(sub==='weekly'\)/);
 });
 
 test('화면은 이슈 목차와 기존 관련 보도 묶음을 함께 사용하되 중복 제목 목록을 만들지 않는다', async () => {
