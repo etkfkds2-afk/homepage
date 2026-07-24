@@ -5,14 +5,16 @@
 .title{color:var(--text)}
 .hotmodes{display:flex;gap:7px;align-items:center}.hotmodes .pill{padding:6px 11px;font-size:12px}
 .brand-news{color:#2563eb}
+.issuePanel{margin:0 0 22px;padding:18px;border:1px solid rgba(15,23,42,.1);border-radius:20px;background:linear-gradient(135deg,#fff,#f8fafc);box-shadow:var(--shadow-sm)}.issueHead{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:12px}.issueTitle{font-size:17px;font-weight:950;letter-spacing:-.35px}.issueDesc{margin-top:3px;color:var(--muted);font-size:11.5px}.issueGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.issueCard{display:block;min-width:0;padding:13px;border:1px solid #e2e8f0;border-radius:15px;background:#fff;text-decoration:none;color:var(--text);transition:.15s}.issueCard:hover{border-color:#94a3b8;transform:translateY(-1px);box-shadow:var(--shadow-sm)}.issueName{font-size:14px;font-weight:900;line-height:1.35}.issueMeta{margin-top:7px;color:#0f766e;font-size:11px;font-weight:800}.issueEmpty{color:var(--muted);font-size:12px;padding:8px 2px}@media(max-width:680px){.issueGrid{grid-template-columns:1fr 1fr}.issuePanel{padding:14px}}@media(max-width:420px){.issueGrid{grid-template-columns:1fr}}
 </style></head><body>
 <header class="top"><div><div class="brand" aria-label="NewsBrief"><span class="brand-news">News</span><span class="brand-brief">Brief</span></div><div class="tagline">오늘의 뉴스를 3줄로 정리해, 판단을 가볍게.<br>중요한 기사만 저장하고 미래의 나에게 남기세요.</div></div><div class="controls"><div class="modebar"><button class="pill on" data-view="home">홈</button><button class="pill baduk" data-view="baduk">바둑</button><button class="pill" data-view="latest">최신순</button><button class="pill" data-view="popular">인기순</button><button class="pill" data-view="saved">저장</button></div><div class="filterbar" id="categories"></div><form class="searchbar" id="search"><input id="query" aria-label="뉴스 검색"><button>검색</button></form></div></header>
 <section class="homehero" id="hero"><div class="home-date" id="date"></div><div class="hotcard"><div class="hothead"><div><span class="hotbadge">24H</span><span class="hotmeta" id="updated"></span><div class="hottitle">오늘의 핵심 뉴스</div></div><div class="hotmodes"><button class="pill on" type="button" data-hot="general">일반</button><button class="pill baduk" type="button" data-hot="baduk">바둑</button></div></div><div class="hotpage" id="hot"></div></div></section>
+<section class="issuePanel" id="issuesPanel" aria-labelledby="issuesTitle"><div class="issueHead"><div><div class="issueTitle" id="issuesTitle">이번 주 이슈</div><div class="issueDesc" id="issuesDesc">비슷한 기사를 하나의 사건으로 묶었습니다.</div></div></div><div class="issueGrid" id="issues"></div></section>
 <div class="sectionTitle" id="sectionTitle">지금 주목할 뉴스</div><main class="grid" id="cards"><div class="empty">뉴스를 불러오는 중입니다.</div></main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script>
 const cats=['정치','경제','사회','생활/문화','세계','IT/과학'];
-const state={mode:'home',category:'',q:'',items:[],heroItems:[],heroTopic:'baduk',requestSeq:0};
+const state={mode:'home',category:'',q:'',items:[],heroItems:[],issueItems:[],heroTopic:'baduk',requestSeq:0};
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const USER_KEY='newsbrief_user_id_v1';
@@ -49,6 +51,15 @@ function renderHero(){
   $('updated').textContent=refreshed?`${fmt(refreshed)} 최근 갱신`:'';
   $('hot').innerHTML=state.heroItems.map((x,i)=>`<a class="hotchip" href="${esc(x.url)}" target="_blank" rel="noopener"><span class="hotrank">${String(i+1).padStart(2,'0')}</span><span class="hottext">${esc(x.title)}</span>${x.related_count?`<span class="hotrelated">관련 ${x.related_count+1}건</span>`:''}<span aria-hidden="true">↗</span></a>`).join('')||'<div class="empty">핵심 뉴스를 준비하고 있습니다.</div>';
 }
+function renderIssues(){
+  const show=Boolean(state.issueItems.length)&&!state.q&&['home','baduk','latest','popular'].includes(state.mode);
+  $('issuesPanel').style.display=show?'block':'none';
+  if(!show)return;
+  const baduk=state.mode==='baduk'||(state.mode==='home'&&state.heroTopic==='baduk');
+  $('issuesTitle').textContent=state.mode==='home'?'이번 주 이슈':state.mode==='baduk'?'최근 30일 바둑 이슈':state.mode==='popular'?'최근 한 달 인기 이슈':'최근 한 달 최신 이슈';
+  $('issuesDesc').textContent=baduk?'바둑 대회·대국·선수 관련 기사를 묶었습니다.':'비슷한 기사를 하나의 사건으로 묶었습니다.';
+  $('issues').innerHTML=state.issueItems.map(issue=>{const rep=issue.representative||{};return `<a class="issueCard" href="${esc(rep.url)}" target="_blank" rel="noopener"><div class="issueName">${esc(issue.title)}</div><div class="issueMeta">관련 기사 ${issue.count}건 · 대표 기사 보기 ↗</div></a>`}).join('')||'<div class="issueEmpty">아직 충분히 묶인 이슈가 없습니다.</div>';
+}
 function relatedHtml(item){
   if(!item.related_count)return'';
   return `<details class="related"><summary>관련 보도 ${item.related_count}건</summary><div class="related-list">${item.related.map(x=>`<a class="related-link" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.outlet)} · ${esc(x.title)}</a>`).join('')}</div></details>`;
@@ -58,7 +69,7 @@ function cardHtml(x){
   return `<article class="card ${x.category==='바둑'?'cat-baduk':''}" data-key="${esc(x.url_key)}"><div class="meta"><div class="meta-left"><span class="tag">${esc(x.outlet||x.press||x.source)}</span><span class="tag">${esc(x.category)}</span></div><span class="time">${esc(fmt(x.published_at||x.fetched_at))}</span></div><div class="row"><a class="thumb" href="${esc(x.url)}" target="_blank" rel="noopener"><img src="/api/news/image?key=${encodeURIComponent(x.url_key)}" alt="" loading="lazy" onerror="this.remove()"></a><div class="content"><a class="title" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a><div class="sum">${String(x.summary||'').split('\n').map(s=>`<div class="sline">${esc(s)}</div>`).join('')}</div>${relatedHtml(x)}</div></div><div class="actions">${actions}</div></article>`;
 }
 function render(){
-  nav();renderHero();
+  nav();renderHero();renderIssues();
   const labels={saved:['저장한 뉴스',''],popular:['최근 한 달 인기 뉴스',''],baduk:['최근 한 달 바둑 뉴스',''],home:['이번 주 주목할 뉴스','']};
   const label=labels[state.mode]||(state.category?[`${state.category} 최신 뉴스`,'']:['최근 한 달 최신 뉴스','']);
   $('sectionTitle').innerHTML=`${esc(label[0])}${label[1]?`<span class="sectionDesc">${esc(label[1])}</span>`:''}`;
@@ -76,7 +87,7 @@ async function load({silent=false}={}){
   if(state.q)p.set('q',state.q);
   try{
     if(state.mode==='home'&&!state.q){
-      const common='';
+      const common=state.heroTopic==='general'?'&exclude_baduk=1':'';
       const badukHome=state.heroTopic==='baduk';
       const heroUrl=badukHome
         ? '/api/news/articles?view=latest&category=%EB%B0%94%EB%91%91&limit=6&hours=168'
@@ -84,13 +95,15 @@ async function load({silent=false}={}){
       const cardsUrl=badukHome
         ? '/api/news/articles?view=latest&category=%EB%B0%94%EB%91%91&limit=100&hours=168'
         : `/api/news/articles?view=home&limit=30&hours=168${common}`;
-      const [home,popular]=await Promise.all([fetchJson(cardsUrl),fetchJson(heroUrl)]);
+      const [home,popular]=await Promise.all([fetchJson(`${cardsUrl}&issues=1`),fetchJson(heroUrl)]);
       if(requestId!==state.requestSeq)return;
       state.heroItems=popular.items||[];
       state.items=home.items||[];
+      state.issueItems=home.issues||[];
     }else{
+      p.set('issues','1');
       const d=await fetchJson(`/api/news/articles?${p}`);if(requestId!==state.requestSeq)return;
-      state.heroItems=[];state.items=d.items||[];
+      state.heroItems=[];state.items=d.items||[];state.issueItems=d.issues||[];
     }
     render()
   }

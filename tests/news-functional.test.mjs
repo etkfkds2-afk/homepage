@@ -35,6 +35,22 @@ test('현재 production은 Claude를 끄고 Cloudflare AI 우선으로 동작한
   assert.match(collector, /Boolean\(env\.AI \|\| wantsAnthropic\)/);
 });
 
+test('이슈 식별은 제목의 대회·선수 조합을 사용하고 일반 단어를 배제한다', async () => {
+  const source = await readFile(new URL('../functions/api/news/articles.js', import.meta.url), 'utf8');
+  assert.match(source, /BADUK_NAMES/);
+  assert.match(source, /(?:대회|리그|기전|컵|배|선수권|오픈)/);
+  assert.match(source, /ISSUE_STOPWORDS/);
+  assert.match(source, /group\.count >= 2/);
+});
+
+test('화면은 이슈 목차와 기존 관련 보도 묶음을 함께 사용하되 중복 제목 목록을 만들지 않는다', async () => {
+  const html = await readFile(new URL('../newsbrief.html', import.meta.url), 'utf8');
+  assert.match(html, /issuesPanel/);
+  assert.match(html, /관련 기사 \$\{issue\.count\}건/);
+  assert.match(html, /relatedHtml\(x\)/);
+  assert.doesNotMatch(html, /issueRelated/);
+});
+
 test('대량 백필은 CPU 제한을 피하도록 작은 묶음으로 처리한다', async () => {
   const workflow = await readFile(new URL('../.github/workflows/deploy.yml', import.meta.url), 'utf8');
   const collector = await readFile(new URL('../functions/api/news/collect.js', import.meta.url), 'utf8');

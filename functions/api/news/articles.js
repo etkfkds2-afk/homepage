@@ -20,6 +20,41 @@ const HOST_OUTLETS = {
   'yna.co.kr': '연합뉴스'
 };
 
+const BADUK_NAMES = ['신진서', '최정', '박정환', '변상일', '커제', '구쯔하오', '이세돌', '김은지', '카타고'];
+const ISSUE_STOPWORDS = new Set(['오늘', '이번', '관련', '전국', '한국', '중국', '세계', '프로', '기사', '대국', '승리', '패배', '소식', '전망', '발표']);
+
+function issueKey(title, category) {
+  const text = normalizeText(title).replace(/[“”‘’'"()[\]{}:;,!?]/g, ' ');
+  const names = BADUK_NAMES.filter(name => text.includes(name));
+  const event = text.match(/[가-힣A-Za-z0-9]{2,18}(?:바둑)?(?:대회|리그|기전|컵|배|선수권|오픈)/)?.[0] || '';
+  const round = text.match(/(?:예선|본선|8강|4강|준결승|결승|16강)/)?.[0] || '';
+  if (category === '바둑') {
+    if (names.length >= 2) return `대국:${names.slice(0, 2).sort().join('·')}:${event}:${round}`;
+    if (event) return `대회:${event}:${round}`;
+    if (names.length === 1) return `선수:${names[0]}:${round}`;
+  }
+  const words = text.split(/\s+/).map(word => word.replace(/[^0-9A-Za-z가-힣]/g, ''))
+    .filter(word => word.length >= 2 && !ISSUE_STOPWORDS.has(word) && !/^\d+$/.test(word));
+  if (words.length < 1) return '';
+  return `${category}:${words.slice(0, 3).join('·')}`;
+}
+
+function buildIssues(items, category = '') {
+  const groups = new Map();
+  for (const item of items) {
+    const key = issueKey(item.title, item.category || category);
+    if (!key) continue;
+    const group = groups.get(key) || { key, title: '', category: item.category, representative: item, related: [], count: 0, latest: item.published_at || item.fetched_at };
+    group.count += 1;
+    if (!group.title) group.title = key.split(':').slice(1).filter(Boolean).join(' · ').replace(/·/g, ' · ').replace(/\s+·\s+$/, '');
+    if (group.representative.url_key !== item.url_key) group.related.push({ url_key: item.url_key, url: item.url, title: item.title, outlet: item.outlet });
+    groups.set(key, group);
+  }
+  return [...groups.values()].filter(group => group.count >= 2)
+    .sort((a, b) => b.count - a.count || String(b.latest).localeCompare(String(a.latest)))
+    .slice(0, 12);
+}
+
 function bigrams(value) {
   const text = String(value || '').toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
   const out = new Set();
@@ -65,6 +100,7 @@ export async function onRequestGet({ request, env }) {
     const requestedView = url.searchParams.get('view') || 'latest';
     const view = ['saved', 'hidden', 'popular', 'home'].includes(requestedView) ? requestedView : 'latest';
     const excludeBaduk = url.searchParams.get('exclude_baduk') === '1';
+    const issues = url.searchParams.get('issues') === '1';
     const maxLimit = 300;
     const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 60, 1), maxLimit);
     const uid = userId(request);
@@ -160,7 +196,7 @@ export async function onRequestGet({ request, env }) {
       accepted.push({ ...item, first, related: [], related_count: 0 });
     }
     const items = accepted.slice(0, limit).map(({ first, ...item }) => item);
-    return json({ ok: true, items });
+    return json({ ok: true, items, issues: issues ? buildIssues(items, category) : [] });
   } catch (error) {
     return json({ ok: false, error: error.message }, 500);
   }
