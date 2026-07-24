@@ -1,5 +1,5 @@
 import { ensureNewsDb, json, userId } from '../../_lib/news-db.js';
-import { isRejectedTitle, normalizeText, validateThreeLineSummary } from '../../_lib/news-summary.js';
+import { normalizeText, validateThreeLineSummary } from '../../_lib/news-summary.js';
 
 const CATEGORIES = new Set(['정치', '경제', '사회', '생활/문화', '세계', 'IT/과학', '바둑', '기타']);
 const NAVER_OUTLETS = {
@@ -65,12 +65,12 @@ export async function onRequestGet({ request, env }) {
     const requestedView = url.searchParams.get('view') || 'latest';
     const view = ['saved', 'hidden', 'popular', 'home'].includes(requestedView) ? requestedView : 'latest';
     const excludeBaduk = url.searchParams.get('exclude_baduk') === '1';
-    const includePending = category === '바둑' && url.searchParams.get('include_pending') === '1';
-    const maxLimit = category === '바둑' ? 300 : 300;
+    const maxLimit = 300;
     const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 60, 1), maxLimit);
     const uid = userId(request);
     const where = [
       view === 'hidden' ? "h.url_key IS NOT NULL" : "h.url_key IS NULL",
+      "a.summary_quality='full'", "TRIM(a.summary)<>''",
       "instr(a.title,'�')=0",
       "lower(a.url) NOT LIKE '%dcinside.com%'",
       "lower(a.url) NOT LIKE '%blog.naver.com%'",
@@ -93,7 +93,6 @@ export async function onRequestGet({ request, env }) {
       "a.title NOT LIKE '%숙소 환급 상세 안내%'",
       "a.title NOT LIKE '%자동차월드%'"
     ];
-    if (!includePending) where.push("a.summary_quality='full'", "TRIM(a.summary)<>''");
     const bindings = [uid, uid];
 
     if (category && CATEGORIES.has(category)) {
@@ -138,17 +137,13 @@ export async function onRequestGet({ request, env }) {
     `).bind(...bindings).all();
     const accepted = [];
     for (const item of result.results || []) {
-      if (isRejectedTitle(item.title)) continue;
       item.summary = normalizeText(String(item.summary || '').replace(/([1-3][.)])\s*&#10;/gi, '$1 '));
       item.image_url = normalizeText(item.image_url);
       item.source = cleanOutlet(item.source) || '기타';
       item.press = cleanOutlet(item.press);
       if (item.press === item.source) item.press = '';
       item.outlet = outletFor(item);
-      const summaryReady = validateThreeLineSummary(item.summary, item.title);
-      if (!summaryReady && !includePending) continue;
-      if (!summaryReady) item.summary = '';
-      item.summary_pending = summaryReady ? 0 : 1;
+      if (!validateThreeLineSummary(item.summary, item.title)) continue;
       const first = String(item.summary || '').split('\n')[0].replace(/^\s*1[.)]\s*/, '');
       // Baduk headlines legitimately repeat player and tournament names. Use a
       // much stricter threshold so separate games are not collapsed together.
