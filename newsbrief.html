@@ -14,7 +14,7 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script>
 const cats=['정치','경제','사회','생활/문화','세계','IT/과학'];
-const state={mode:'home',category:'',q:'',issueKey:'',items:[],heroItems:[],issueItems:[],heroTopic:'general',requestSeq:0};
+const state={mode:'home',category:'',q:'',issueKey:'',items:[],heroItems:[],issueItems:[],heroTopic:'baduk',requestSeq:0};
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const USER_KEY='newsbrief_user_id_v1';
@@ -91,7 +91,7 @@ async function load({silent=false}={}){
       const badukHome=state.heroTopic==='baduk';
       const heroUrl=badukHome
         ? '/api/news/articles?view=latest&category=%EB%B0%94%EB%91%91&limit=6&hours=168'
-        : '/api/news/articles?view=popular&limit=6&hours=24&exclude_baduk=1';
+        : '/api/news/articles?view=latest&limit=6&exclude_baduk=1';
       const cardsUrl=badukHome
         ? '/api/news/articles?view=latest&category=%EB%B0%94%EB%91%91&limit=30'
         : '/api/news/articles?view=latest&limit=30&exclude_baduk=1';
