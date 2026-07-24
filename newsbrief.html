@@ -139,7 +139,7 @@ document.addEventListener('click',e=>{
   const issue=e.target.closest('[data-issue-key]');
   if(issue){
     state.issueKey=issue.dataset.issueKey;
-    load().then(()=>$('cards').scrollIntoView({behavior:'smooth',block:'start'}));
+    load();
     return;
   }
   const section=e.target.dataset.section;
