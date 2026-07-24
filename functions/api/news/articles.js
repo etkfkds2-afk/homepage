@@ -32,6 +32,7 @@ function issueKey(title, category) {
     if (names.length >= 2) return `대국:${names.slice(0, 2).sort().join('·')}:${event}:${round}`;
     if (event) return `대회:${event}:${round}`;
     if (names.length === 1) return `선수:${names[0]}:${round}`;
+    return '';
   }
   const words = text.split(/\s+/).map(word => word.replace(/[^0-9A-Za-z가-힣]/g, ''))
     .filter(word => word.length >= 2 && !ISSUE_STOPWORDS.has(word) && !/^\d+$/.test(word));
