@@ -4,6 +4,16 @@ import { classifyIssues } from '../../_lib/news-issue-classify.js';
 
 const SUPPORTED_CATEGORIES = new Set(['바둑', '최신순', '인기순']);
 
+function loadExistingPayload(row) {
+  if (!row) return [];
+  try {
+    const parsed = JSON.parse(row.payload);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function onRequestPost({ request, env }) {
   if (!isCollectorAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
   try {
@@ -23,25 +33,70 @@ export async function onRequestPost({ request, env }) {
     }
     bindings.push(400);
 
-    const result = await env.DB.prepare(`
-      SELECT a.url_key, a.title, a.summary, a.published_at, a.fetched_at
-      FROM news_articles a
-      WHERE ${where.join(' AND ')}
-      ORDER BY COALESCE(NULLIF(a.published_at,''), a.fetched_at) DESC
-      LIMIT ?
-    `).bind(...bindings).all();
+    const [result, cacheRow] = await Promise.all([
+      env.DB.prepare(`
+        SELECT a.url_key, a.title, a.summary, a.published_at, a.fetched_at
+        FROM news_articles a
+        WHERE ${where.join(' AND ')}
+        ORDER BY COALESCE(NULLIF(a.published_at,''), a.fetched_at) DESC
+        LIMIT ?
+      `).bind(...bindings).all(),
+      env.DB.prepare('SELECT payload FROM news_issue_cache WHERE category=?').bind(category).first()
+    ]);
     const articles = result.results || [];
-    if (!articles.length) {
-      return json({ ok: true, category, count: 0, issues: [] });
+    const inWindowKeys = new Set(articles.map(a => a.url_key));
+
+    // Drop url_keys that aged out of the 30-day window (and any group that
+    // becomes empty as a result) before deciding what's genuinely new.
+    const existingPayload = loadExistingPayload(cacheRow)
+      .map(group => ({ ...group, url_keys: (group.url_keys || []).filter(key => inWindowKeys.has(key)) }))
+      .filter(group => group.url_keys.length > 0);
+
+    const classifiedKeys = new Set(existingPayload.flatMap(group => group.url_keys));
+    const newArticles = articles.filter(a => !classifiedKeys.has(a.url_key));
+
+    if (!newArticles.length) {
+      return json({
+        ok: true,
+        category,
+        count: articles.length,
+        new_count: 0,
+        provider: 'none',
+        issues: existingPayload.map(group => ({ key: group.key, title: group.title, count: group.url_keys.length }))
+      });
     }
 
-    const { groups, provider } = await classifyIssues(env, articles);
-    const payload = groups.map((group, index) => ({
-      key: group.misc ? `${category}|ai:misc` : `${category}|ai:${index}`,
-      title: group.title,
-      url_keys: group.url_keys
-    }));
+    const existingIssues = existingPayload.filter(group => !group.misc && !String(group.key || '').endsWith('|ai:misc'));
+    const { groups, provider } = await classifyIssues(
+      env,
+      newArticles,
+      existingIssues.map(group => ({ key: group.key, title: group.title }))
+    );
 
+    const byKey = new Map(existingPayload.map(group => [group.key, group]));
+    let nextIndex = existingPayload.reduce((max, group) => {
+      const match = /\|ai:(\d+)$/.exec(group.key || '');
+      return match ? Math.max(max, Number(match[1]) + 1) : max;
+    }, 0);
+
+    for (const group of groups) {
+      if (group.misc) {
+        const miscKey = `${category}|ai:misc`;
+        const existingMisc = byKey.get(miscKey);
+        if (existingMisc) existingMisc.url_keys.push(...group.url_keys);
+        else byKey.set(miscKey, { key: miscKey, title: '기타', url_keys: [...group.url_keys] });
+        continue;
+      }
+      const matched = existingIssues.find(existing => existing.title === group.title);
+      if (matched) {
+        matched.url_keys.push(...group.url_keys);
+      } else {
+        const key = `${category}|ai:${nextIndex++}`;
+        byKey.set(key, { key, title: group.title, url_keys: [...group.url_keys] });
+      }
+    }
+
+    const payload = [...byKey.values()];
     await env.DB.prepare(
       `INSERT INTO news_issue_cache (category, payload, built_at) VALUES (?, ?, CURRENT_TIMESTAMP)
        ON CONFLICT(category) DO UPDATE SET payload = excluded.payload, built_at = CURRENT_TIMESTAMP`
@@ -51,6 +106,7 @@ export async function onRequestPost({ request, env }) {
       ok: true,
       category,
       count: articles.length,
+      new_count: newArticles.length,
       provider,
       issues: payload.map(group => ({ key: group.key, title: group.title, count: group.url_keys.length }))
     });

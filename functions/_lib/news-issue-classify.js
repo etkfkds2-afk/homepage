@@ -1,17 +1,19 @@
 const CLASSIFY_MODEL = 'claude-sonnet-5';
 const WORKERS_AI_CLASSIFY_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 
-const INSTRUCTIONS = `당신은 한국 뉴스 데스크의 편집자다. 아래 번호 매긴 기사 제목·요약 목록을 보고, 실제로 같은 사건(같은 대회의 같은 경기, 같은 발표, 같은 사고 등)을 다루는 기사끼리 묶어 "이슈"를 만든다.
-
+function buildInstructions(hasExisting) {
+  return `당신은 한국 뉴스 데스크의 편집자다. ${hasExisting ? '이미 분류된 기존 이슈 목록과, ' : ''}아직 분류되지 않은 새 기사 목록을 준다.
+${hasExisting ? '\n각 새 기사가 기존 이슈 중 하나와 실제로 같은 사건을 다루면, 그 기존 이슈의 제목을 글자 하나 다르지 않게 정확히 그대로 사용해서 묶는다. 같은 사건을 다루는 기존 이슈가 없으면 새로운 이슈를 만든다.\n' : ''}
 규칙:
 - 서로 다른 대회, 다른 라운드, 다른 인물, 다른 사건의 기사는 절대 같은 이슈로 묶지 않는다.
-- 정말로 같은 사건을 다루는 기사가 2건 이상 있을 때만 이슈로 만든다. 관련 기사가 없는 단독 기사는 결과에서 제외한다.
+- 새로 만드는 이슈는 정말로 같은 사건을 다루는 기사가 2건 이상 있을 때만 만든다. 단독 기사는 결과에서 제외한다.
 - 같은 번호를 두 이슈에 중복으로 넣지 않는다.
-- 이슈 제목은 8~18자 내외의 자연스러운 한국어 명사구로 쓴다. 어색한 번역투, 따옴표, 특수기호를 쓰지 않는다.
+- 새로 만드는 이슈 제목은 8~18자 내외의 자연스러운 한국어 명사구로 쓴다. 어색한 번역투, 따옴표, 특수기호를 쓰지 않는다.
   예시: "신진서 삼성화재배 우승", "한국기원 정기이사회 개최", "이세돌 은퇴 이후 근황"
 - 반드시 아래 JSON 배열 형식으로만 응답한다. 다른 설명, 주석, 마크다운 코드블록은 절대 쓰지 않는다.
 
-출력 형식: [{"title":"이슈 제목","indices":[0,3,7]}]`;
+출력 형식: [{"title":"이슈 제목(기존과 같은 사건이면 그 제목 그대로)","indices":[0,3,7]}]`;
+}
 
 function buildListing(articles) {
   return articles.map((item, index) => {
@@ -19,6 +21,13 @@ function buildListing(articles) {
     const summary = String(item.summary || '').replace(/\n/g, ' ').slice(0, 80);
     return `${index}. [${date}] ${item.title}${summary ? ` — ${summary}` : ''}`;
   }).join('\n');
+}
+
+function buildPrompt(newArticles, existingIssues) {
+  const existingBlock = existingIssues.length
+    ? `기존 이슈 목록:\n${existingIssues.map(issue => `- ${issue.title}`).join('\n')}\n\n`
+    : '';
+  return `${existingBlock}새 기사 목록:\n${buildListing(newArticles)}`;
 }
 
 function stripFences(value) {
@@ -40,7 +49,7 @@ function extractJsonArray(text) {
   }
 }
 
-function toGroups(parsed, articles) {
+function toGroups(parsed, articles, existingTitles) {
   if (!Array.isArray(parsed)) return [];
   const used = new Set();
   const groups = [];
@@ -49,7 +58,11 @@ function toGroups(parsed, articles) {
     const indices = Array.isArray(entry?.indices)
       ? [...new Set(entry.indices)].filter(i => Number.isInteger(i) && i >= 0 && i < articles.length && !used.has(i))
       : [];
-    if (!title || indices.length < 2) continue;
+    if (!title || !indices.length) continue;
+    // A match against an existing issue title is kept at any size (it's
+    // extending an already-established story); a brand-new title still
+    // needs 2+ articles to justify its own tile.
+    if (!existingTitles.has(title) && indices.length < 2) continue;
     indices.forEach(i => used.add(i));
     groups.push({ title, url_keys: indices.map(i => articles[i].url_key) });
   }
@@ -60,11 +73,11 @@ function toGroups(parsed, articles) {
   return groups;
 }
 
-async function classifyWithWorkersAi(env, articles) {
+async function classifyWithWorkersAi(env, articles, existingIssues) {
   const result = await env.AI.run(WORKERS_AI_CLASSIFY_MODEL, {
     messages: [
-      { role: 'system', content: INSTRUCTIONS },
-      { role: 'user', content: buildListing(articles) }
+      { role: 'system', content: buildInstructions(existingIssues.length > 0) },
+      { role: 'user', content: buildPrompt(articles, existingIssues) }
     ],
     max_tokens: 4096,
     temperature: 0
@@ -72,10 +85,10 @@ async function classifyWithWorkersAi(env, articles) {
   const text = result?.response || result?.result?.response || '';
   const parsed = extractJsonArray(text);
   if (!parsed) throw new Error(`Cloudflare AI 응답을 JSON으로 해석하지 못했습니다: ${text.slice(0, 300)}`);
-  return toGroups(parsed, articles);
+  return toGroups(parsed, articles, new Set(existingIssues.map(issue => issue.title)));
 }
 
-async function classifyWithAnthropic(env, articles) {
+async function classifyWithAnthropic(env, articles, existingIssues) {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -86,8 +99,8 @@ async function classifyWithAnthropic(env, articles) {
     body: JSON.stringify({
       model: CLASSIFY_MODEL,
       max_tokens: 8000,
-      system: INSTRUCTIONS,
-      messages: [{ role: 'user', content: buildListing(articles) }]
+      system: buildInstructions(existingIssues.length > 0),
+      messages: [{ role: 'user', content: buildPrompt(articles, existingIssues) }]
     })
   });
   const payload = await response.json().catch(() => ({}));
@@ -97,21 +110,21 @@ async function classifyWithAnthropic(env, articles) {
   const text = (payload?.content || []).filter(b => b?.type === 'text').map(b => b.text).join('\n');
   const parsed = extractJsonArray(text);
   if (!parsed) throw new Error('Anthropic 응답을 JSON으로 해석하지 못했습니다.');
-  return toGroups(parsed, articles);
+  return toGroups(parsed, articles, new Set(existingIssues.map(issue => issue.title)));
 }
 
-export async function classifyIssues(env, articles) {
+// existingIssues: [{key, title}] — issues already in the cache, so the
+// caller can send only genuinely new articles and have them merged in
+// instead of re-classifying everything from scratch every run.
+export async function classifyIssues(env, articles, existingIssues = []) {
   if (!articles.length) return { groups: [], provider: 'none' };
-  // Prefer the free Cloudflare model; fall back to Anthropic only if it
-  // errors, so a bad day for the free model doesn't silently drop the
-  // daily rebuild.
   if (env?.AI) {
     try {
-      return { groups: await classifyWithWorkersAi(env, articles), provider: 'workers-ai' };
+      return { groups: await classifyWithWorkersAi(env, articles, existingIssues), provider: 'workers-ai' };
     } catch (error) {
       if (!env?.ANTHROPIC_API_KEY) throw error;
     }
   }
-  if (env?.ANTHROPIC_API_KEY) return { groups: await classifyWithAnthropic(env, articles), provider: 'anthropic' };
+  if (env?.ANTHROPIC_API_KEY) return { groups: await classifyWithAnthropic(env, articles, existingIssues), provider: 'anthropic' };
   return { groups: [], provider: 'none' };
 }
