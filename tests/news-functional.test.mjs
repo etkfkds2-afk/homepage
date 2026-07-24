@@ -59,12 +59,14 @@ test('숨김 목록은 현재 방문자의 숨긴 기사만 조회한다', async
   assert.match(query, /h\.url_key IS NOT NULL/);
 });
 
-test('브라우저는 방문자 ID를 저장·조회 API에 함께 보낸다', async () => {
+test('브라우저는 방문자 ID를 저장·조회 API에 함께 보내고 삭제 UI만 제공한다', async () => {
   const html = await readFile(new URL('../newsbrief.html', import.meta.url), 'utf8');
   assert.match(html, /localStorage\.getItem\(USER_KEY\)/);
   assert.match(html, /'x-news-user':userId/);
-  assert.match(html, /data-view="hidden"/);
-  assert.match(html, /data-action="unhide"/);
+  assert.doesNotMatch(html, /data-view="hidden"/);
+  assert.doesNotMatch(html, /data-action="unhide"/);
+  assert.match(html, /data-action="hide">삭제/);
+  assert.match(html, /기사를 삭제했습니다/);
 });
 
 test('D1 UTC 시각 문자열을 UTC로 해석한다', async () => {
