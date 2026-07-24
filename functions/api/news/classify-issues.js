@@ -43,10 +43,15 @@ export async function onRequestPost({ request, env }) {
        ON CONFLICT(category) DO UPDATE SET payload = excluded.payload, built_at = CURRENT_TIMESTAMP`
     ).bind(category, JSON.stringify(payload)).run();
 
+    const provider = env?.NEWSBRIEF_USE_ANTHROPIC === '1' && env?.ANTHROPIC_API_KEY
+      ? 'anthropic'
+      : env?.AI ? 'workers-ai' : 'none';
+
     return json({
       ok: true,
       category,
       count: articles.length,
+      provider,
       issues: payload.map(group => ({ key: group.key, title: group.title, count: group.url_keys.length }))
     });
   } catch (error) {

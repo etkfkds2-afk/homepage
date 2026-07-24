@@ -12,47 +12,35 @@ const INSTRUCTIONS = `당신은 한국 뉴스 데스크의 편집자다. 아래 
 
 출력 형식: [{"title":"이슈 제목","indices":[0,3,7]}]`;
 
-function stripFences(value) {
-  return String(value || '').replace(/```(?:json)?/gi, '').trim();
-}
-
-export async function classifyIssues(env, articles) {
-  if (!env?.ANTHROPIC_API_KEY || !articles.length) return [];
-
-  const listing = articles.map((item, index) => {
+function buildListing(articles) {
+  return articles.map((item, index) => {
     const date = String(item.published_at || item.fetched_at || '').slice(0, 10);
     const summary = String(item.summary || '').replace(/\n/g, ' ').slice(0, 80);
     return `${index}. [${date}] ${item.title}${summary ? ` — ${summary}` : ''}`;
   }).join('\n');
+}
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: CLASSIFY_MODEL,
-      max_tokens: 8000,
-      system: INSTRUCTIONS,
-      messages: [{ role: 'user', content: listing }]
-    })
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload?.error?.message || `Anthropic API ${response.status}`);
-  }
-  const text = stripFences((payload?.content || []).filter(b => b?.type === 'text').map(b => b.text).join('\n'));
+function stripFences(value) {
+  return String(value || '').replace(/```(?:json)?/gi, '').trim();
+}
 
-  let parsed;
+function extractJsonArray(text) {
+  const stripped = stripFences(text);
   try {
-    parsed = JSON.parse(text);
+    return JSON.parse(stripped);
   } catch {
-    throw new Error('Anthropic 응답을 JSON으로 해석하지 못했습니다.');
+    const match = stripped.match(/\[[\s\S]*\]/);
+    if (!match) return null;
+    try {
+      return JSON.parse(match[0]);
+    } catch {
+      return null;
+    }
   }
-  if (!Array.isArray(parsed)) throw new Error('Anthropic 응답이 배열 형식이 아닙니다.');
+}
 
+function toGroups(parsed, articles) {
+  if (!Array.isArray(parsed)) return [];
   const used = new Set();
   const groups = [];
   for (const entry of parsed) {
@@ -65,4 +53,52 @@ export async function classifyIssues(env, articles) {
     groups.push({ title, url_keys: indices.map(i => articles[i].url_key) });
   }
   return groups;
+}
+
+async function classifyWithWorkersAi(env, articles) {
+  const result = await env.AI.run('@cf/meta/llama-4-scout-17b-16e-instruct', {
+    messages: [
+      { role: 'system', content: INSTRUCTIONS },
+      { role: 'user', content: buildListing(articles) }
+    ],
+    max_tokens: 4000,
+    temperature: 0
+  });
+  const text = result?.response || result?.result?.response || '';
+  const parsed = extractJsonArray(text);
+  if (!parsed) throw new Error('Cloudflare AI 응답을 JSON으로 해석하지 못했습니다.');
+  return toGroups(parsed, articles);
+}
+
+async function classifyWithAnthropic(env, articles) {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify({
+      model: CLASSIFY_MODEL,
+      max_tokens: 8000,
+      system: INSTRUCTIONS,
+      messages: [{ role: 'user', content: buildListing(articles) }]
+    })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || `Anthropic API ${response.status}`);
+  }
+  const text = (payload?.content || []).filter(b => b?.type === 'text').map(b => b.text).join('\n');
+  const parsed = extractJsonArray(text);
+  if (!parsed) throw new Error('Anthropic 응답을 JSON으로 해석하지 못했습니다.');
+  return toGroups(parsed, articles);
+}
+
+export async function classifyIssues(env, articles) {
+  if (!articles.length) return [];
+  const useAnthropic = env?.NEWSBRIEF_USE_ANTHROPIC === '1' && Boolean(env?.ANTHROPIC_API_KEY);
+  if (useAnthropic) return classifyWithAnthropic(env, articles);
+  if (env?.AI) return classifyWithWorkersAi(env, articles);
+  return [];
 }
