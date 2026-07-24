@@ -10,6 +10,12 @@ on:
         required: false
         default: false
         type: boolean
+      classify_category:
+        description: 'Claude로 이슈 키워드 재분류할 카테고리 (비우면 건너뜀)'
+        required: false
+        default: ''
+        type: choice
+        options: ['', '바둑', '최신순', '인기순']
   schedule:
     # GitHub may delay scheduled jobs during busy periods. Running every 15
     # Collect and refresh all news views every three hours. URL keys in D1 make
@@ -128,3 +134,20 @@ jobs:
                 "https://newsbrief-etkfkds2.pages.dev/api/news/collect?repair=1&force_retry=1"
             done
           fi
+
+  classify-issues:
+    needs: deploy
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.classify_category != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Classify issue keywords with Claude
+        env:
+          NEWSBRIEF_COLLECT_TOKEN: ${{ secrets.NEWSBRIEF_COLLECT_TOKEN }}
+        run: |
+          curl --fail-with-body -sS --retry 2 --max-time 120 \
+            -X POST \
+            -H "Authorization: Bearer ${NEWSBRIEF_COLLECT_TOKEN}" \
+            "https://newsbrief-etkfkds2.pages.dev/api/news/classify-issues?category=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "${{ inputs.classify_category }}")" \
+            | tee /tmp/classify-result.json
+          echo
+          python3 -m json.tool /tmp/classify-result.json

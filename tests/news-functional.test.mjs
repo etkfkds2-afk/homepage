@@ -105,6 +105,28 @@ test('수동 한 달 백필만 대기 중인 요약을 강제 순환한다', asy
   assert.match(collector, /forceRetry \? 1 : 0/);
 });
 
+test('바둑 이슈는 캐시가 있으면 정규식 대신 Claude 분류 결과를 사용한다', async () => {
+  let usedFirst = false;
+  const env = { DB: {
+    batch: async () => [],
+    prepare(sql) {
+      if (sql.includes('SELECT payload FROM news_issue_cache')) {
+        return { bind() { return this; }, async first() { usedFirst = true; return { payload: JSON.stringify([{ key: '바둑|ai:0', title: '신진서 삼성화재배 우승', url_keys: ['k1', 'k2'] }]) }; } };
+      }
+      return { bind() { return this; }, async all() { return { results: [
+        { id: 1, url: 'https://a', url_key: 'k1', title: '신진서 9단이 삼성화재배 결승에서 우승했다', source: 'x', press: '', category: '바둑', published_at: '2026-07-20 00:00:00', fetched_at: '2026-07-20 00:00:00', summary: '1) 신진서 9단이 삼성화재배 결승전에서 상대를 꺾고 우승했다.\n2) 이번 대회 상금은 삼억 원이며 신진서가 모두 가져갔다.\n3) 한국기원은 시상식을 다음달에 개최한다고 밝혔다.', summary_quality: 'full', image_url: '', saved: 0 },
+        { id: 2, url: 'https://b', url_key: 'k2', title: '이세돌 전 9단 근황 공개', source: 'x', press: '', category: '바둑', published_at: '2026-07-20 00:00:00', fetched_at: '2026-07-20 00:00:00', summary: '1) 유튜브 채널이 은퇴한 프로기사의 일상을 담은 영상을 올렸다.\n2) 그는 현재 바둑 교육 사업에 집중하고 있다고 말했다.\n3) 팬들은 오랜만의 소식이라며 반가움을 나타냈다고 전했다.', summary_quality: 'full', image_url: '', saved: 0 }
+      ] }; } };
+    }
+  } };
+  const response = await onRequestGet({ request: new Request('https://example.com/api/news/articles?category=%EB%B0%94%EB%91%91&issues=1'), env });
+  const body = await response.json();
+  assert.equal(usedFirst, true);
+  assert.equal(body.issues.length, 1);
+  assert.equal(body.issues[0].title, '신진서 삼성화재배 우승');
+  assert.equal(body.issues[0].count, 2);
+});
+
 test('숨김 목록은 현재 방문자의 숨긴 기사만 조회한다', async () => {
   let query = '';
   const env = { DB: {

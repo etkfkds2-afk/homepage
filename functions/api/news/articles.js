@@ -2,6 +2,30 @@ import { ensureNewsDb, json, userId } from '../../_lib/news-db.js';
 import { normalizeText, validateThreeLineSummary } from '../../_lib/news-summary.js';
 
 const CATEGORIES = new Set(['정치', '경제', '사회', '생활/문화', '세계', 'IT/과학', '바둑', '기타']);
+export const CONTENT_QUALITY_FILTERS = [
+  "a.summary_quality='full'", "TRIM(a.summary)<>''",
+  "instr(a.title,'�')=0",
+  "lower(a.url) NOT LIKE '%dcinside.com%'",
+  "lower(a.url) NOT LIKE '%blog.naver.com%'",
+  "lower(a.url) NOT LIKE '%cafe.naver.com%'",
+  "lower(a.url) NOT LIKE '%tistory.com%'",
+  "lower(a.url) NOT LIKE '%fmkorea.com%'",
+  "lower(a.url) NOT LIKE '%theqoo.net%'",
+  "lower(a.url) NOT LIKE '%ruliweb.com%'",
+  "lower(a.url) NOT LIKE '%clien.net%'",
+  "lower(a.url) NOT LIKE '%ppomppu.co.kr%'",
+  "lower(a.url) NOT LIKE '%instiz.net%'",
+  "lower(a.url) NOT LIKE '%youtube.com%'",
+  "lower(a.url) NOT LIKE '%namu.wiki%'",
+  "lower(a.url) NOT LIKE '%sports.naver.com/%'",
+  "a.summary NOT LIKE '%글자크기%'",
+  "a.summary NOT LIKE '%글자 크기%'",
+  "a.summary NOT LIKE '%본문 내용은%'",
+  "a.title NOT LIKE '%시세 조회로%'",
+  "a.title NOT LIKE '%현명한 투자하세요%'",
+  "a.title NOT LIKE '%숙소 환급 상세 안내%'",
+  "a.title NOT LIKE '%자동차월드%'"
+];
 const NAVER_OUTLETS = {
   '001': '연합뉴스', '003': '뉴시스', '005': '국민일보', '008': '머니투데이',
   '009': '매일경제', '011': '서울경제', '014': '파이낸셜뉴스', '015': '한국경제TV',
@@ -62,6 +86,26 @@ function buildIssues(items, category = '') {
     .slice(0, 12);
 }
 
+async function loadIssueCache(env, category) {
+  const row = await env.DB.prepare('SELECT payload FROM news_issue_cache WHERE category=?').bind(category).first();
+  if (!row) return null;
+  try {
+    const parsed = JSON.parse(row.payload);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function buildIssuesFromCache(items, cached) {
+  const present = new Set(items.map(item => item.url_key));
+  return cached
+    .map(group => ({ key: group.key, title: group.title, count: group.url_keys.filter(key => present.has(key)).length }))
+    .filter(group => group.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 12);
+}
+
 function bigrams(value) {
   const text = String(value || '').toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
   const out = new Set();
@@ -115,28 +159,7 @@ export async function onRequestGet({ request, env }) {
     const uid = userId(request);
     const where = [
       view === 'hidden' ? "h.url_key IS NOT NULL" : "h.url_key IS NULL",
-      "a.summary_quality='full'", "TRIM(a.summary)<>''",
-      "instr(a.title,'�')=0",
-      "lower(a.url) NOT LIKE '%dcinside.com%'",
-      "lower(a.url) NOT LIKE '%blog.naver.com%'",
-      "lower(a.url) NOT LIKE '%cafe.naver.com%'",
-      "lower(a.url) NOT LIKE '%tistory.com%'",
-      "lower(a.url) NOT LIKE '%fmkorea.com%'",
-      "lower(a.url) NOT LIKE '%theqoo.net%'",
-      "lower(a.url) NOT LIKE '%ruliweb.com%'",
-      "lower(a.url) NOT LIKE '%clien.net%'",
-      "lower(a.url) NOT LIKE '%ppomppu.co.kr%'",
-      "lower(a.url) NOT LIKE '%instiz.net%'",
-      "lower(a.url) NOT LIKE '%youtube.com%'",
-      "lower(a.url) NOT LIKE '%namu.wiki%'",
-      "lower(a.url) NOT LIKE '%sports.naver.com/%'",
-      "a.summary NOT LIKE '%글자크기%'",
-      "a.summary NOT LIKE '%글자 크기%'",
-      "a.summary NOT LIKE '%본문 내용은%'",
-      "a.title NOT LIKE '%시세 조회로%'",
-      "a.title NOT LIKE '%현명한 투자하세요%'",
-      "a.title NOT LIKE '%숙소 환급 상세 안내%'",
-      "a.title NOT LIKE '%자동차월드%'"
+      ...CONTENT_QUALITY_FILTERS
     ];
     const bindings = [uid, uid];
 
@@ -209,10 +232,17 @@ export async function onRequestGet({ request, env }) {
       }
       accepted.push({ ...item, first, related: [], related_count: 0 });
     }
-    const issueList = buildIssues(accepted, category);
-    const selected = issueKeyFilter
-      ? accepted.filter(item => issueKey(item.title, item.category || category, item.summary) === issueKeyFilter)
-      : accepted;
+    const cachedIssues = category === '바둑' ? await loadIssueCache(env, category) : null;
+    const issueList = cachedIssues ? buildIssuesFromCache(accepted, cachedIssues) : buildIssues(accepted, category);
+    let selected = accepted;
+    if (issueKeyFilter) {
+      if (cachedIssues) {
+        const group = cachedIssues.find(entry => entry.key === issueKeyFilter);
+        selected = group ? accepted.filter(item => group.url_keys.includes(item.url_key)) : [];
+      } else {
+        selected = accepted.filter(item => issueKey(item.title, item.category || category, item.summary) === issueKeyFilter);
+      }
+    }
     const items = selected.slice(0, issueKeyFilter ? 300 : limit).map(({ first, ...item }) => item);
     return json({ ok: true, items, issues: issues ? issueList : [] });
   } catch (error) {

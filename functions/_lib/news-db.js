@@ -60,6 +60,11 @@ CREATE TABLE IF NOT EXISTS news_summary_attempts (
   url_key TEXT PRIMARY KEY,
   attempts INTEGER NOT NULL DEFAULT 0,
   last_attempt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS news_issue_cache (
+  category TEXT PRIMARY KEY,
+  payload TEXT NOT NULL,
+  built_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );`;
 
 export function json(data, status = 200) {
