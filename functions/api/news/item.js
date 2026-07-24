@@ -7,7 +7,7 @@ export async function onRequestPost({ request, env }) {
     const body = await request.json();
     const key = String(body.url_key || '').slice(0, 100);
     const action = body.action;
-    if (!key || !['save', 'unsave', 'hide'].includes(action)) {
+    if (!key || !['save', 'unsave', 'hide', 'unhide'].includes(action)) {
       return json({ ok: false, error: '올바른 url_key와 action이 필요합니다.' }, 400);
     }
     const uid = userId(request);
@@ -15,11 +15,13 @@ export async function onRequestPost({ request, env }) {
       await env.DB.prepare('INSERT OR IGNORE INTO news_saved(user_id,url_key) VALUES(?,?)').bind(uid, key).run();
     } else if (action === 'unsave') {
       await env.DB.prepare('DELETE FROM news_saved WHERE user_id=? AND url_key=?').bind(uid, key).run();
-    } else {
+    } else if (action === 'hide') {
       await env.DB.batch([
         env.DB.prepare('INSERT OR IGNORE INTO news_hidden(user_id,url_key) VALUES(?,?)').bind(uid, key),
         env.DB.prepare('DELETE FROM news_saved WHERE user_id=? AND url_key=?').bind(uid, key)
       ]);
+    } else {
+      await env.DB.prepare('DELETE FROM news_hidden WHERE user_id=? AND url_key=?').bind(uid, key).run();
     }
     return json({ ok: true, action });
   } catch (error) {

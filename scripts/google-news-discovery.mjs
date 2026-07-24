@@ -42,4 +42,17 @@ const response = await fetch(endpoint, {
 });
 const result = await response.text();
 console.log(`Google discoveries=${found.size} collector=${response.status} ${result}`);
-if (!response.ok) process.exitCode = 1;
+if (!response.ok) {
+  process.exitCode = 1;
+} else {
+  try {
+    const payload = JSON.parse(result);
+    if (payload.status === 'degraded') {
+      console.error(`Collector degraded: ${(payload.warnings || []).join(', ')}`);
+      process.exitCode = 2;
+    }
+  } catch {
+    console.error('Collector returned a non-JSON response');
+    process.exitCode = 1;
+  }
+}

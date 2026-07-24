@@ -23,6 +23,8 @@ const BADUK_SEARCHES = [
 ];
 
 const GENERIC_TITLES = new Set(['이 시각 주요 뉴스', '오늘의 주요 뉴스', '주요 뉴스', '뉴스 브리핑']);
+const DAILY_AI_CALL_LIMIT = 4;
+const MAX_SCHEDULED_CANDIDATES = 10;
 
 const BODY_JUNK = /(?:무단전재|재배포\s*금지|저작권자|구독|로그인|회원가입|제보|관련기사|추천뉴스|많이\s*본\s*뉴스|기사제공|기자\s*[A-Z0-9._%+-]+@|기사의?\s*본문\s*내용|글자\s*크기|인쇄하기|공유하기)/i;
 const DEAD_PAGE = /(?:존재하지\s*않는\s*페이지|요청하신\s*페이지를\s*찾을\s*수\s*없|삭제된\s*기사|기사가\s*존재하지\s*않|page\s*not\s*found|\b404\b)/i;
@@ -234,15 +236,45 @@ async function popularPage(url, source) {
   return out;
 }
 
-async function collectPopularity() {
+async function collectPopularity(slot = 0) {
   const pages = [
     ...[['100','정치'],['101','경제'],['102','사회'],['103','생활/문화'],['104','세계']]
       .map(([sid, category]) => [`https://news.naver.com/main/ranking/popularDay.naver?mid=etc&sid1=${sid}`, 'NAVER', category]),
     ['https://news.daum.net/ranking/popular', 'DAUM', '기타']
   ];
+  const selected = [pages[slot % 5], pages[5]];
   const rows = [];
-  for (const [url, source, category] of pages) rows.push(...(await popularPage(url, source)).map(row => ({ ...row, category })));
+  for (const [url, source, category] of selected) rows.push(...(await popularPage(url, source)).map(row => ({ ...row, category })));
   return rows;
+}
+
+async function reserveAiCall(env, diagnostics) {
+  const day = new Date().toISOString().slice(0, 10);
+  const dayRow = await env.DB.prepare("SELECT value FROM news_state WHERE key='ai_budget_day'").first();
+  if (String(dayRow?.value || '') !== day) {
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO news_state(key,value) VALUES('ai_budget_day',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(day),
+      env.DB.prepare("INSERT INTO news_state(key,value) VALUES('ai_calls_today',0) ON CONFLICT(key) DO UPDATE SET value=0"),
+      env.DB.prepare("INSERT INTO news_state(key,value) VALUES('ai_blocked',0) ON CONFLICT(key) DO UPDATE SET value=0")
+    ]);
+  }
+  const blocked = await env.DB.prepare("SELECT value FROM news_state WHERE key='ai_blocked'").first();
+  const calls = await env.DB.prepare("SELECT value FROM news_state WHERE key='ai_calls_today'").first();
+  const used = Number(calls?.value || 0);
+  if (Number(blocked?.value || 0) || used >= DAILY_AI_CALL_LIMIT) {
+    diagnostics.ai_budget_exhausted = true;
+    diagnostics.ai_calls_today = used;
+    return false;
+  }
+  await env.DB.prepare("INSERT INTO news_state(key,value) VALUES('ai_calls_today',1) ON CONFLICT(key) DO UPDATE SET value=value+1").run();
+  diagnostics.ai_calls_today = used + 1;
+  return true;
+}
+
+async function blockAiForToday(env, diagnostics) {
+  await env.DB.prepare("INSERT INTO news_state(key,value) VALUES('ai_blocked',1) ON CONFLICT(key) DO UPDATE SET value=1").run();
+  diagnostics.ai_budget_exhausted = true;
+  diagnostics.ai_provider_limited = true;
 }
 
 async function collectArchivedTop(slot) {
@@ -265,14 +297,20 @@ async function collectArchivedTop(slot) {
 
 async function collect(env, { backfill = false, repair = false, googleDiscoveries = [] } = {}) {
   const diagnostics = { mode: backfill ? 'backfill' : 'scheduled', retry_attempted: 0, retry_repaired: 0, samples: [] };
-  let aiRetryRemaining = repair ? 12 : (backfill ? 12 : 12);
-  let aiNewRemaining = repair ? 0 : (backfill ? 6 : 3);
+  let aiRetryRemaining = repair ? 4 : (backfill ? 3 : 2);
+  let aiNewRemaining = repair ? 0 : (backfill ? 2 : 2);
   const summarize = async (payload, detail, purpose = 'new') => {
-    const useAi = payload.category === '바둑'
+    const trace = detail || {};
+    let useAi = Boolean(env.AI) && payload.category === '바둑'
       && (purpose === 'retry' ? aiRetryRemaining > 0 : aiNewRemaining > 0);
+    if (useAi) useAi = await reserveAiCall(env, diagnostics);
     if (useAi && purpose === 'retry') aiRetryRemaining -= 1;
     if (useAi && purpose !== 'retry') aiNewRemaining -= 1;
-    return makeBestSummary(useAi ? env : { AI: undefined }, payload, detail);
+    const summary = await makeBestSummary(useAi ? env : { AI: undefined }, payload, trace);
+    if (useAi && /(?:daily free allocation|Account limited|3036|4006)/i.test(String(trace.ai_error || ''))) {
+      await blockAiForToday(env, diagnostics);
+    }
+    return summary;
   };
   const stored = await env.DB.prepare('SELECT id,title,summary,body_text,category FROM news_articles').all();
   for (const row of stored.results || []) {
@@ -281,20 +319,13 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
   }
   const mislabeled = await env.DB.prepare("SELECT id,url,source,press FROM news_articles WHERE source IN ('NAVER','KAKAO','GOOGLE')").all();
   for (const row of mislabeled.results || []) {
-    if (row.source === 'KAKAO' && !allowedCandidate(row.url, 'KAKAO')) {
-      await env.DB.prepare("UPDATE news_articles SET summary='',summary_quality='none' WHERE id=?").bind(row.id).run();
-    }
     const fixed = articleSource(row.url, row.source, row.press);
     if (fixed !== row.source) await env.DB.prepare('UPDATE news_articles SET source=? WHERE id=?').bind(fixed, row.id).run();
   }
-  const storedPollution = row => row.category === '바둑' && (
-    /&(?:[a-z][a-z0-9]+|#(?:x[0-9a-f]+|\d+));/i.test(row.summary || '')
-    || /[가-힣]\s+(?:은|는|이|가|을|를|와|과|의|에|도|만)(?=\s|[,.;:!?]|$)/u.test(row.summary || '')
-    || /(?:대국\s+료|접\s+바둑|고등\s+학교|바둑\s+협회)/u.test(row.summary || '')
-  );
-  const poisoned = (stored.results || []).filter(row => GENERIC_TITLES.has(row.title) || isRejectedTitle(row.title)
-    || storedPollution(row) || !validateThreeLineSummary(row.summary, row.title));
-  if (poisoned.length) await env.DB.batch(poisoned.map(row => env.DB.prepare("UPDATE news_articles SET summary='',summary_quality='none' WHERE id=?").bind(row.id)));
+  // Never demote an already-published article during a routine collection.
+  // Validation rules evolve, and destructive revalidation made valid cards
+  // disappear from the site. Repairs may replace a summary only after a new
+  // summary has passed validation.
   if (repair) {
     const weakRows = await env.DB.prepare(`SELECT id,url,body_text,image_url,press FROM news_articles
       WHERE category='바둑' AND summary_quality='none' AND length(body_text)<300
@@ -312,11 +343,12 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
     diagnostics.body_recrawl_attempted = (weakRows.results || []).length;
     diagnostics.body_recrawl_recovered = recovered.reduce((sum, value) => sum + value, 0);
   }
+  const retryRowLimit = repair ? 12 : (backfill ? 8 : 4);
   const retryRows = await env.DB.prepare(`SELECT a.id,a.url_key,a.title,a.raw_summary,a.body_text,a.category FROM news_articles a
     LEFT JOIN news_summary_attempts f ON f.url_key=a.url_key
     WHERE a.summary_quality='none' AND length(a.body_text)>=300 AND COALESCE(f.attempts,0)<?
     ORDER BY CASE WHEN a.category='바둑' THEN 0 ELSE 1 END, length(a.body_text) DESC, a.fetched_at DESC LIMIT ?`)
-    .bind(24, aiRetryRemaining).all();
+    .bind(24, retryRowLimit).all();
   for (const row of retryRows.results || []) {
     if (isRejectedTitle(row.title)) continue;
     const detail = {};
@@ -342,27 +374,28 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
   await env.DB.prepare('INSERT INTO news_state(key,value) VALUES(?,1) ON CONFLICT(key) DO UPDATE SET value=value+1').bind(cursorKey).run();
   const backfillStart = backfill ? (slot % 10) * 100 + 1 : (slot % 100) * 10 + 1;
   const badukQuery = BADUK_SEARCHES[slot % BADUK_SEARCHES.length];
+  const generalSearches = SEARCHES.filter(([category]) => category !== '바둑');
   const selectedSearches = backfill
     ? SEARCHES.filter(([category]) => category === '바둑')
-    : SEARCHES;
+    : [SEARCHES[0], generalSearches[slot % generalSearches.length], generalSearches[(slot + 1) % generalSearches.length]];
   for (const [category, query] of selectedSearches) {
     // A broad "바둑" query at ever-higher offsets repeatedly returned the same small
     // set of usable portal articles. Search several distinct beats per run instead.
     const effectiveQueries = category === '바둑'
-      ? Array.from({ length: backfill ? 4 : 2 }, (_, index) =>
-          BADUK_SEARCHES[(slot * (backfill ? 4 : 2) + index) % BADUK_SEARCHES.length])
+      ? Array.from({ length: backfill ? 3 : 1 }, (_, index) =>
+          BADUK_SEARCHES[(slot * (backfill ? 3 : 1) + index) % BADUK_SEARCHES.length])
       : [query];
     for (const effectiveQuery of effectiveQueries) {
       const pageBand = backfill ? Math.floor(slot / Math.ceil(BADUK_SEARCHES.length / 4)) % 5 : 0;
       const start = category === '바둑' ? pageBand * 20 + 1 : (backfill ? backfillStart : 1);
-      const display = category === '바둑' ? 20 : (backfill ? 10 : 5);
+      const display = category === '바둑' ? 10 : (backfill ? 10 : 4);
       const items = await naverSearch(env, effectiveQuery, start, display);
-      const naverTake = category === '바둑' ? (backfill ? 5 : 2) : (backfill ? 2 : 3);
+      const naverTake = category === '바둑' ? (backfill ? 4 : 3) : (backfill ? 2 : 2);
       for (const item of items.slice(0, naverTake)) candidates.push({ category, item, source: 'NAVER' });
       try {
         const page = category === '바둑' ? pageBand + 1 : (backfill ? (slot % 10) * 5 + 1 : 1);
-        const kakaoItems = await kakaoSearch(env, effectiveQuery, page, category === '바둑' ? 20 : (backfill ? 10 : 5));
-        const kakaoTake = category === '바둑' ? (backfill ? 5 : 2) : (backfill ? 2 : 1);
+        const kakaoItems = await kakaoSearch(env, effectiveQuery, page, category === '바둑' ? 10 : (backfill ? 10 : 3));
+        const kakaoTake = category === '바둑' ? (backfill ? 3 : 1) : (backfill ? 2 : 1);
         for (const item of kakaoItems.slice(0, kakaoTake)) candidates.push({ category, item, source: 'KAKAO' });
       } catch (error) {
         diagnostics.kakao_error = String(error?.message || error).slice(0, 120);
@@ -372,7 +405,7 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
   // Google News is discovery-only: resolve each headline through the licensed
   // Naver API, then fetch and validate the real article like every other item.
   // Never expose a Google wrapper or its short RSS description as a summary.
-  for (const discovery of googleDiscoveries.slice(0, backfill ? 40 : 2)) {
+  for (const discovery of googleDiscoveries.slice(0, backfill ? 20 : 2)) {
     const discoveredTitle = cleanTitle(discovery?.title || '');
     if (!discoveredTitle || isRejectedTitle(discoveredTitle)) continue;
     try {
@@ -411,7 +444,8 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
     diagnostics.google_error = String(error?.message || error).slice(0, 120);
   }
   if (!backfill) try {
-    const popular = await collectPopularity();
+    const allPopular = await collectPopularity(slot);
+    const popular = allPopular.slice(0, 12);
     diagnostics.popular_found = popular.length;
     for (const row of popular.filter(row => row.rank <= 2)) candidates.push({
       category: row.category,
@@ -491,8 +525,20 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
     ).run();
     return 1;
   };
+  const uniqueCandidates = [];
+  const candidateUrls = new Set();
+  for (const candidate of candidates) {
+    const key = canonicalUrl(candidate.item?.originallink || candidate.item?.link);
+    if (!key || candidateUrls.has(key)) continue;
+    candidateUrls.add(key);
+    uniqueCandidates.push(candidate);
+  }
+  const limitedCandidates = backfill ? uniqueCandidates.slice(0, 20) : uniqueCandidates.slice(0, MAX_SCHEDULED_CANDIDATES);
   diagnostics.candidates = candidates.length;
-  const inserted = (await Promise.all(candidates.map(processCandidate))).reduce((sum, value) => sum + value, 0);
+  diagnostics.unique_candidates = uniqueCandidates.length;
+  diagnostics.processed_candidates = limitedCandidates.length;
+  let inserted = 0;
+  for (const candidate of limitedCandidates) inserted += await processCandidate(candidate);
   return { inserted, diagnostics };
 }
 
@@ -515,9 +561,15 @@ export async function onRequestPost({ request, env }) {
     } catch {}
     const googleDiscoveries = Array.isArray(payload?.googleDiscoveries) ? payload.googleDiscoveries : [];
     const result = await collect(env, { backfill, repair, googleDiscoveries });
-    await env.DB.prepare("UPDATE news_runs SET finished_at=?,status='ok',inserted_count=? WHERE id=?")
-      .bind(new Date().toISOString(), result.inserted, runId).run();
-    return json({ ok: true, ...result });
+    const warnings = Object.entries(result.diagnostics)
+      .filter(([key, value]) => /_error$/.test(key) && value)
+      .map(([key, value]) => `${key}: ${value}`);
+    if (result.diagnostics.ai_provider_limited) warnings.push('ai_provider_limited');
+    const status = warnings.length ? 'degraded' : 'ok';
+    const message = JSON.stringify({ warnings, diagnostics: result.diagnostics }).slice(0, 500);
+    await env.DB.prepare("UPDATE news_runs SET finished_at=?,status=?,inserted_count=?,message=? WHERE id=?")
+      .bind(new Date().toISOString(), status, result.inserted, message, runId).run();
+    return json({ ok: true, status, warnings, ...result });
   } catch (error) {
     if (runId) {
       await env.DB.prepare("UPDATE news_runs SET finished_at=?,status='error',message=? WHERE id=?")

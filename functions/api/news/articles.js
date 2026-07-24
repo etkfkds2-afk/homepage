@@ -63,13 +63,14 @@ export async function onRequestGet({ request, env }) {
     const query = (url.searchParams.get('q') || '').trim().slice(0, 100);
     const hours = Math.min(Math.max(Number(url.searchParams.get('hours')) || 0, 0), 24 * 30);
     const requestedView = url.searchParams.get('view') || 'latest';
-    const view = ['saved', 'popular', 'home'].includes(requestedView) ? requestedView : 'latest';
+    const view = ['saved', 'hidden', 'popular', 'home'].includes(requestedView) ? requestedView : 'latest';
     const excludeBaduk = url.searchParams.get('exclude_baduk') === '1';
     const maxLimit = category === '바둑' ? 100 : 300;
     const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 60, 1), maxLimit);
     const uid = userId(request);
     const where = [
-      "h.url_key IS NULL", "a.summary_quality='full'", "TRIM(a.summary)<>''",
+      view === 'hidden' ? "h.url_key IS NOT NULL" : "h.url_key IS NULL",
+      "a.summary_quality='full'", "TRIM(a.summary)<>''",
       "instr(a.title,'�')=0",
       "lower(a.url) NOT LIKE '%dcinside.com%'",
       "lower(a.url) NOT LIKE '%blog.naver.com%'",
@@ -106,8 +107,8 @@ export async function onRequestGet({ request, env }) {
     }
     if (view === 'saved') where.push('s.url_key IS NOT NULL');
     if (view === 'popular') where.push('p.title IS NOT NULL');
-    if (view !== 'saved') where.push("COALESCE(NULLIF(a.published_at,''),a.fetched_at) >= datetime('now','-30 days')");
-    if (hours > 0 && view !== 'saved') {
+    if (!['saved', 'hidden'].includes(view)) where.push("COALESCE(NULLIF(a.published_at,''),a.fetched_at) >= datetime('now','-30 days')");
+    if (hours > 0 && !['saved', 'hidden'].includes(view)) {
       where.push("COALESCE(NULLIF(a.published_at,''),a.fetched_at) >= datetime('now', ?)");
       bindings.push(`-${hours} hours`);
     }
