@@ -1,4 +1,5 @@
 const CLASSIFY_MODEL = 'claude-sonnet-5';
+const WORKERS_AI_CLASSIFY_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 
 const INSTRUCTIONS = `당신은 한국 뉴스 데스크의 편집자다. 아래 번호 매긴 기사 제목·요약 목록을 보고, 실제로 같은 사건(같은 대회의 같은 경기, 같은 발표, 같은 사고 등)을 다루는 기사끼리 묶어 "이슈"를 만든다.
 
@@ -60,12 +61,12 @@ function toGroups(parsed, articles) {
 }
 
 async function classifyWithWorkersAi(env, articles) {
-  const result = await env.AI.run('@cf/meta/llama-4-scout-17b-16e-instruct', {
+  const result = await env.AI.run(WORKERS_AI_CLASSIFY_MODEL, {
     messages: [
       { role: 'system', content: INSTRUCTIONS },
       { role: 'user', content: buildListing(articles) }
     ],
-    max_tokens: 4000,
+    max_tokens: 4096,
     temperature: 0
   });
   const text = result?.response || result?.result?.response || '';
@@ -100,12 +101,17 @@ async function classifyWithAnthropic(env, articles) {
 }
 
 export async function classifyIssues(env, articles) {
-  if (!articles.length) return [];
-  // Issue classification is one batched call/day, unlike per-article
-  // summaries — cheap enough to prefer Anthropic quality whenever a key is
-  // configured, independent of NEWSBRIEF_USE_ANTHROPIC (which only gates the
-  // much higher-frequency per-article summary path).
-  if (env?.ANTHROPIC_API_KEY) return classifyWithAnthropic(env, articles);
-  if (env?.AI) return classifyWithWorkersAi(env, articles);
-  return [];
+  if (!articles.length) return { groups: [], provider: 'none' };
+  // Prefer the free Cloudflare model; fall back to Anthropic only if it
+  // errors, so a bad day for the free model doesn't silently drop the
+  // daily rebuild.
+  if (env?.AI) {
+    try {
+      return { groups: await classifyWithWorkersAi(env, articles), provider: 'workers-ai' };
+    } catch (error) {
+      if (!env?.ANTHROPIC_API_KEY) throw error;
+    }
+  }
+  if (env?.ANTHROPIC_API_KEY) return { groups: await classifyWithAnthropic(env, articles), provider: 'anthropic' };
+  return { groups: [], provider: 'none' };
 }
