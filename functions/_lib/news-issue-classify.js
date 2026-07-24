@@ -60,19 +60,41 @@ function toGroups(parsed, articles) {
   return groups;
 }
 
-async function classifyWithWorkersAi(env, articles) {
+const WORKERS_AI_CHUNK_SIZE = 25;
+
+async function classifyChunkWithWorkersAi(env, chunk) {
   const result = await env.AI.run(WORKERS_AI_CLASSIFY_MODEL, {
     messages: [
       { role: 'system', content: INSTRUCTIONS },
-      { role: 'user', content: buildListing(articles) }
+      { role: 'user', content: buildListing(chunk) }
     ],
-    max_tokens: 4096,
+    max_tokens: 2000,
     temperature: 0
   });
   const text = result?.response || result?.result?.response || '';
   const parsed = extractJsonArray(text);
   if (!parsed) throw new Error(`Cloudflare AI 응답을 JSON으로 해석하지 못했습니다: ${text.slice(0, 300)}`);
-  return toGroups(parsed, articles);
+  return toGroups(parsed, chunk);
+}
+
+// A single call with all articles was too slow/unreliable for the free
+// model (confirmed by testing — both plain-prompt and json_schema-forced
+// attempts failed or timed out on ~130 articles). Splitting into small
+// chunks keeps each call fast and its output short enough to parse
+// reliably; per-chunk 기타 (leftover singles) are merged into one bucket.
+async function classifyWithWorkersAi(env, articles) {
+  const groups = [];
+  const miscUrlKeys = [];
+  for (let i = 0; i < articles.length; i += WORKERS_AI_CHUNK_SIZE) {
+    const chunk = articles.slice(i, i + WORKERS_AI_CHUNK_SIZE);
+    const chunkGroups = await classifyChunkWithWorkersAi(env, chunk);
+    for (const group of chunkGroups) {
+      if (group.misc) miscUrlKeys.push(...group.url_keys);
+      else groups.push(group);
+    }
+  }
+  if (miscUrlKeys.length) groups.push({ title: '기타', url_keys: miscUrlKeys, misc: true });
+  return groups;
 }
 
 async function classifyWithAnthropic(env, articles) {
