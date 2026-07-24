@@ -46,3 +46,23 @@ test('보조 공급자 장애 중 신규 기사가 등록되면 경고만 남긴
   assert.match(script, /::warning::/);
   assert.match(script, /if \(!Number\(payload\.inserted \|\| 0\)\) process\.exitCode = 2/);
 });
+
+test('바둑 목록은 요약 대기 기사도 제목 목록으로 반환한다', async () => {
+  const pending = {
+    id: 10, url_key: 'pending', url: 'https://example.com/pending',
+    title: '전국 청소년 바둑대회가 다음 달 서울에서 열린다', source: 'TEST', press: '테스트일보',
+    category: '바둑', published_at: '2026-07-24T01:00:00Z', fetched_at: '2026-07-24T01:00:00Z',
+    summary: '', summary_quality: 'none', image_url: '', saved: 0
+  };
+  const env = { DB: {
+    batch: async () => [],
+    prepare(sql) {
+      return { bind() { return this; }, async all() { return { results: sql.includes('SELECT a.id') ? [pending] : [] }; } };
+    }
+  } };
+  const response = await onRequestGet({ request: new Request('https://example.com/api/news/articles?category=%EB%B0%94%EB%91%91&include_pending=1'), env });
+  const data = await response.json();
+  assert.equal(data.items.length, 1);
+  assert.equal(data.items[0].summary_pending, 1);
+  assert.equal(data.items[0].summary, '');
+});

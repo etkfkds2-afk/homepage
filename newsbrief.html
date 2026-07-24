@@ -5,6 +5,7 @@
 .title{color:var(--text)}
 .hotmodes{display:flex;gap:7px;align-items:center}.hotmodes .pill{padding:6px 11px;font-size:12px}
 .brand-news{color:#2563eb}
+.card.pending{min-height:112px;background:#fafafa}.card.pending .sum{color:#64748b}.pending-note{margin-top:9px;color:#64748b;font-size:12px;font-weight:700}
 </style></head><body>
 <header class="top"><div><div class="brand" aria-label="NewsBrief"><span class="brand-news">News</span><span class="brand-brief">Brief</span></div><div class="tagline">오늘의 뉴스를 3줄로 정리해, 판단을 가볍게.<br>중요한 기사만 저장하고 미래의 나에게 남기세요.</div></div><div class="controls"><div class="modebar"><button class="pill on" data-view="home">홈</button><button class="pill baduk" data-view="baduk">바둑</button><button class="pill" data-view="latest">최신순</button><button class="pill" data-view="popular">인기순</button><button class="pill" data-view="saved">저장</button><button class="pill setting" data-view="hidden">숨김</button></div><div class="filterbar" id="categories"></div><form class="searchbar" id="search"><input id="query" aria-label="뉴스 검색"><button>검색</button></form></div></header>
 <section class="homehero" id="hero"><div class="home-date" id="date"></div><div class="hotcard"><div class="hothead"><div><span class="hotbadge">24H</span><span class="hotmeta" id="updated"></span><div class="hottitle">오늘의 핵심 뉴스</div></div><div class="hotmodes"><button class="pill on" type="button" data-hot="general">일반</button><button class="pill baduk" type="button" data-hot="baduk">바둑</button></div></div><div class="hotpage" id="hot"></div></div></section>
@@ -57,7 +58,8 @@ function cardHtml(x){
   const actions=state.mode==='hidden'
     ? '<button class="act" data-action="unhide">복원</button>'
     : `<button class="act ${x.saved?'on':''}" data-action="${x.saved?'unsave':'save'}">${x.saved?'저장됨':'저장'}</button>${state.mode!=='saved'?'<button class="act del" data-action="hide">숨기기</button>':''}`;
-  return `<article class="card ${x.category==='바둑'?'cat-baduk':''}" data-key="${esc(x.url_key)}"><div class="meta"><div class="meta-left"><span class="tag">${esc(x.outlet||x.press||x.source)}</span><span class="tag">${esc(x.category)}</span></div><span class="time">${esc(fmt(x.published_at||x.fetched_at))}</span></div><div class="row"><a class="thumb" href="${esc(x.url)}" target="_blank" rel="noopener"><img src="/api/news/image?key=${encodeURIComponent(x.url_key)}" alt="" loading="lazy" onerror="this.remove()"></a><div class="content"><a class="title" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a><div class="sum">${String(x.summary||'').split('\n').map(s=>`<div class="sline">${esc(s)}</div>`).join('')}</div>${relatedHtml(x)}</div></div><div class="actions">${actions}</div></article>`;
+  const summary=x.summary_pending?'<div class="pending-note">요약 준비 중 · 원문은 지금 확인할 수 있습니다.</div>':`<div class="sum">${String(x.summary||'').split('\n').map(s=>`<div class="sline">${esc(s)}</div>`).join('')}</div>`;
+  return `<article class="card ${x.category==='바둑'?'cat-baduk':''} ${x.summary_pending?'pending':''}" data-key="${esc(x.url_key)}"><div class="meta"><div class="meta-left"><span class="tag">${esc(x.outlet||x.press||x.source)}</span><span class="tag">${esc(x.category)}</span></div><span class="time">${esc(fmt(x.published_at||x.fetched_at))}</span></div><div class="row"><a class="thumb" href="${esc(x.url)}" target="_blank" rel="noopener"><img src="/api/news/image?key=${encodeURIComponent(x.url_key)}" alt="" loading="lazy" onerror="this.remove()"></a><div class="content"><a class="title" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>${summary}${relatedHtml(x)}</div></div><div class="actions">${actions}</div></article>`;
 }
 function render(){
   nav();renderHero();
@@ -71,9 +73,10 @@ async function load({silent=false}={}){
   const requestId=++state.requestSeq;nav();
   if(!silent)$('cards').innerHTML='<div class="empty">뉴스를 불러오는 중입니다.</div>';
   const view=state.mode==='home'?'home':state.mode==='saved'?'saved':state.mode==='hidden'?'hidden':state.mode==='popular'?'popular':'latest';
-  const p=new URLSearchParams({limit:state.mode==='home'?'30':state.mode==='baduk'?'100':'300',view});
+  const p=new URLSearchParams({limit:state.mode==='home'?'30':state.mode==='baduk'?'300':'300',view});
   const category=state.mode==='baduk'?'바둑':state.category;
   if(category)p.set('category',category);
+  if(state.mode==='baduk')p.set('include_pending','1');
   if(state.mode==='latest'||state.mode==='popular')p.set('exclude_baduk','1');
   if(state.q)p.set('q',state.q);
   try{
