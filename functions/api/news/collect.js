@@ -350,7 +350,9 @@ async function collect(env, { backfill = false, repair = false, forceRetry = fal
   let aiNewRemaining = repair ? 0 : (backfill ? 2 : 2);
   const summarize = async (payload, detail, purpose = 'new') => {
     const trace = detail || {};
-    const wantsAnthropic = Boolean(env.ANTHROPIC_API_KEY) && payload.category === '바둑';
+    const wantsAnthropic = Boolean(env.ANTHROPIC_API_KEY)
+      && env.NEWSBRIEF_USE_ANTHROPIC === '1'
+      && payload.category === '바둑';
     let useAi = Boolean(env.AI || wantsAnthropic) && payload.category === '바둑'
       && (purpose === 'retry' ? aiRetryRemaining > 0 : aiNewRemaining > 0);
     if (useAi) useAi = wantsAnthropic

@@ -119,10 +119,10 @@ test('Anthropic 호출은 바둑 기사에만 사용한다', async () => {
   };
   try {
     const body = '신진서 9단은 24일 열린 본선 대국에서 승리했다. 대국은 서울 한국기원에서 제한시간 방식으로 진행됐다. 주최 측은 다음 대국이 25일 열린다고 밝혔다. '.repeat(4);
-    const baduk = await makeBestSummary({ ANTHROPIC_API_KEY: 'test-key' }, { title: '신진서 본선 승리', body, category: '바둑' });
+    const baduk = await makeBestSummary({ ANTHROPIC_API_KEY: 'test-key', NEWSBRIEF_USE_ANTHROPIC: '1' }, { title: '신진서 본선 승리', body, category: '바둑' });
     assert.equal(calls, 1);
     assert.equal(validateThreeLineSummary(baduk, '신진서 본선 승리'), true);
-    await makeBestSummary({ ANTHROPIC_API_KEY: 'test-key' }, { title: '경제 정책 발표', body, category: '경제' });
+    await makeBestSummary({ ANTHROPIC_API_KEY: 'test-key', NEWSBRIEF_USE_ANTHROPIC: '1' }, { title: '경제 정책 발표', body, category: '경제' });
     assert.equal(calls, 1);
   } finally {
     globalThis.fetch = originalFetch;

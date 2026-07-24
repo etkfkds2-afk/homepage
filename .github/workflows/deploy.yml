@@ -69,7 +69,8 @@ jobs:
               NAVER_CLIENT_SECRET:{type:"secret_text",value:$naver_secret},
               KAKAO_REST_API_KEY:{type:"secret_text",value:$kakao_key},
               NEWSBRIEF_COLLECT_TOKEN:{type:"secret_text",value:$collect_token},
-              ANTHROPIC_API_KEY:{type:"secret_text",value:$anthropic_key}
+              ANTHROPIC_API_KEY:{type:"secret_text",value:$anthropic_key},
+              NEWSBRIEF_USE_ANTHROPIC:{type:"plain_text",value:"0"}
             }}}}' > /tmp/pages-settings.json
           curl --fail-with-body -sS \
             -X PATCH \

@@ -58,7 +58,9 @@ export async function makeBestSummary(env, { title = '', rawSummary = '', body =
   const source = normalizeText(body || rawSummary).slice(0, 6000);
   if (!source) return '';
 
-  const useAnthropic = category === '바둑' && Boolean(env?.ANTHROPIC_API_KEY);
+  const useAnthropic = category === '바둑'
+    && env?.NEWSBRIEF_USE_ANTHROPIC === '1'
+    && Boolean(env?.ANTHROPIC_API_KEY);
   if ((useAnthropic || env?.AI) && source.length >= 300) {
     if (diagnostics) diagnostics.ai_attempted = true;
     const instructions = `당신은 한국어 뉴스 편집자다. 제공된 원문에 명시된 사실만 사용해 정확히 3줄로 요약한다.
