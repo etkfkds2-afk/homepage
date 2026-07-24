@@ -15,6 +15,16 @@ test('AI 호출은 일일 예산과 당일 차단 상태를 확인한다', async
   assert.match(source, /ai_blocked/);
 });
 
+test('Anthropic은 바둑 전용이며 일일·평생 호출 상한을 적용한다', async () => {
+  const collector = await readFile(new URL('../functions/api/news/collect.js', import.meta.url), 'utf8');
+  const ai = await readFile(new URL('../functions/_lib/news-ai-summary.js', import.meta.url), 'utf8');
+  assert.match(collector, /DAILY_ANTHROPIC_CALL_LIMIT = 50/);
+  assert.match(collector, /TOTAL_ANTHROPIC_CALL_LIMIT = 250/);
+  assert.match(collector, /payload\.category === '바둑'/);
+  assert.match(ai, /category === '바둑' && Boolean\(env\?\.ANTHROPIC_API_KEY\)/);
+  assert.match(ai, /claude-haiku-4-5-20251001/);
+});
+
 test('숨김 목록은 현재 방문자의 숨긴 기사만 조회한다', async () => {
   let query = '';
   const env = { DB: {

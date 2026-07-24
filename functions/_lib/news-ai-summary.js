@@ -25,11 +25,41 @@ function normalizeAiAnswer(value) {
   return lines.map((line, index) => `${index + 1}) ${line}`).join('\n');
 }
 
-export async function makeBestSummary(env, { title = '', rawSummary = '', body = '' } = {}, diagnostics = null) {
+const ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001';
+
+async function runAnthropic(apiKey, instructions, title, source) {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify({
+      model: ANTHROPIC_MODEL,
+      max_tokens: 420,
+      temperature: 0,
+      system: instructions,
+      messages: [{ role: 'user', content: `제목: ${title}\n\n원문:\n${source}` }]
+    })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = payload?.error?.message || `Anthropic API ${response.status}`;
+    throw new Error(message);
+  }
+  return {
+    text: (payload?.content || []).filter(block => block?.type === 'text').map(block => block.text).join('\n'),
+    usage: payload?.usage || {}
+  };
+}
+
+export async function makeBestSummary(env, { title = '', rawSummary = '', body = '', category = '' } = {}, diagnostics = null) {
   const source = normalizeText(body || rawSummary).slice(0, 6000);
   if (!source) return '';
 
-  if (env?.AI && source.length >= 300) {
+  const useAnthropic = category === '바둑' && Boolean(env?.ANTHROPIC_API_KEY);
+  if ((useAnthropic || env?.AI) && source.length >= 300) {
     if (diagnostics) diagnostics.ai_attempted = true;
     const instructions = `당신은 한국어 뉴스 편집자다. 제공된 원문에 명시된 사실만 사용해 정확히 3줄로 요약한다.
 
@@ -43,20 +73,34 @@ export async function makeBestSummary(env, { title = '', rawSummary = '', body =
 - 말줄임표와 문장 조각을 쓰지 않는다.
 - 출력은 "1) 문장", "2) 문장", "3) 문장" 세 줄뿐이다.`;
     try {
-      const result = await env.AI.run('@cf/meta/llama-4-scout-17b-16e-instruct', {
-        messages: [
-          { role: 'system', content: instructions },
-          { role: 'user', content: `제목: ${title}\n\n원문:\n${source}` }
-        ],
-        max_tokens: 420,
-        temperature: 0,
-        top_p: 0.8
-      });
-      const aiSummary = normalizeAiAnswer(result?.response || result?.result?.response || '');
+      let answer = '';
+      if (useAnthropic) {
+        const result = await runAnthropic(env.ANTHROPIC_API_KEY, instructions, title, source);
+        answer = result.text;
+        if (diagnostics) Object.assign(diagnostics, {
+          ai_provider: 'anthropic',
+          ai_model: ANTHROPIC_MODEL,
+          ai_input_tokens: Number(result.usage?.input_tokens || 0),
+          ai_output_tokens: Number(result.usage?.output_tokens || 0)
+        });
+      } else {
+        const result = await env.AI.run('@cf/meta/llama-4-scout-17b-16e-instruct', {
+          messages: [
+            { role: 'system', content: instructions },
+            { role: 'user', content: `제목: ${title}\n\n원문:\n${source}` }
+          ],
+          max_tokens: 420,
+          temperature: 0,
+          top_p: 0.8
+        });
+        answer = result?.response || result?.result?.response || '';
+        if (diagnostics) diagnostics.ai_provider = 'cloudflare';
+      }
+      const aiSummary = normalizeAiAnswer(answer);
       const structurallyValid = validateThreeLineSummary(aiSummary, title);
       const grounded = numbersGrounded(aiSummary, `${title}\n${source}`);
       if (diagnostics) Object.assign(diagnostics, {
-        ai_returned: Boolean(result?.response || result?.result?.response),
+        ai_returned: Boolean(answer),
         normalized: aiSummary.slice(0, 700),
         structurally_valid: structurallyValid,
         numbers_grounded: grounded

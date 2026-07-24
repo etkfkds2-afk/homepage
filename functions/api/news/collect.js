@@ -24,6 +24,11 @@ const BADUK_SEARCHES = [
 
 const GENERIC_TITLES = new Set(['이 시각 주요 뉴스', '오늘의 주요 뉴스', '주요 뉴스', '뉴스 브리핑']);
 const DAILY_AI_CALL_LIMIT = 4;
+const DAILY_ANTHROPIC_CALL_LIMIT = 50;
+// A lifetime cap, deliberately far below US$5 at the pinned Haiku model's
+// maximum request size. The Anthropic workspace spend limit remains the hard
+// billing-side stop.
+const TOTAL_ANTHROPIC_CALL_LIMIT = 250;
 const MAX_SCHEDULED_CANDIDATES = 10;
 
 const BODY_JUNK = /(?:무단전재|재배포\s*금지|저작권자|구독|로그인|회원가입|제보|관련기사|추천뉴스|많이\s*본\s*뉴스|기사제공|기자\s*[A-Z0-9._%+-]+@|기사의?\s*본문\s*내용|글자\s*크기|인쇄하기|공유하기)/i;
@@ -271,6 +276,36 @@ async function reserveAiCall(env, diagnostics) {
   return true;
 }
 
+async function reserveAnthropicCall(env, diagnostics) {
+  const day = new Date().toISOString().slice(0, 10);
+  const dayRow = await env.DB.prepare("SELECT value FROM news_state WHERE key='anthropic_budget_day'").first();
+  if (String(dayRow?.value || '') !== day) {
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO news_state(key,value) VALUES('anthropic_budget_day',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(day),
+      env.DB.prepare("INSERT INTO news_state(key,value) VALUES('anthropic_calls_today',0) ON CONFLICT(key) DO UPDATE SET value=0")
+    ]);
+  }
+  const [dailyRow, totalRow] = await Promise.all([
+    env.DB.prepare("SELECT value FROM news_state WHERE key='anthropic_calls_today'").first(),
+    env.DB.prepare("SELECT value FROM news_state WHERE key='anthropic_calls_total'").first()
+  ]);
+  const daily = Number(dailyRow?.value || 0);
+  const total = Number(totalRow?.value || 0);
+  if (daily >= DAILY_ANTHROPIC_CALL_LIMIT || total >= TOTAL_ANTHROPIC_CALL_LIMIT) {
+    diagnostics.anthropic_budget_exhausted = true;
+    diagnostics.anthropic_calls_today = daily;
+    diagnostics.anthropic_calls_total = total;
+    return false;
+  }
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO news_state(key,value) VALUES('anthropic_calls_today',1) ON CONFLICT(key) DO UPDATE SET value=value+1"),
+    env.DB.prepare("INSERT INTO news_state(key,value) VALUES('anthropic_calls_total',1) ON CONFLICT(key) DO UPDATE SET value=value+1")
+  ]);
+  diagnostics.anthropic_calls_today = daily + 1;
+  diagnostics.anthropic_calls_total = total + 1;
+  return true;
+}
+
 async function blockAiForToday(env, diagnostics) {
   await env.DB.prepare("INSERT INTO news_state(key,value) VALUES('ai_blocked',1) ON CONFLICT(key) DO UPDATE SET value=1").run();
   diagnostics.ai_budget_exhausted = true;
@@ -301,13 +336,16 @@ async function collect(env, { backfill = false, repair = false, googleDiscoverie
   let aiNewRemaining = repair ? 0 : (backfill ? 2 : 2);
   const summarize = async (payload, detail, purpose = 'new') => {
     const trace = detail || {};
-    let useAi = Boolean(env.AI) && payload.category === '바둑'
+    const wantsAnthropic = Boolean(env.ANTHROPIC_API_KEY) && payload.category === '바둑';
+    let useAi = Boolean(env.AI || wantsAnthropic) && payload.category === '바둑'
       && (purpose === 'retry' ? aiRetryRemaining > 0 : aiNewRemaining > 0);
-    if (useAi) useAi = await reserveAiCall(env, diagnostics);
+    if (useAi) useAi = wantsAnthropic
+      ? await reserveAnthropicCall(env, diagnostics)
+      : await reserveAiCall(env, diagnostics);
     if (useAi && purpose === 'retry') aiRetryRemaining -= 1;
     if (useAi && purpose !== 'retry') aiNewRemaining -= 1;
-    const summary = await makeBestSummary(useAi ? env : { AI: undefined }, payload, trace);
-    if (useAi && /(?:daily free allocation|Account limited|3036|4006)/i.test(String(trace.ai_error || ''))) {
+    const summary = await makeBestSummary(useAi ? env : { AI: undefined, ANTHROPIC_API_KEY: undefined }, payload, trace);
+    if (useAi && !wantsAnthropic && /(?:daily free allocation|Account limited|3036|4006)/i.test(String(trace.ai_error || ''))) {
       await blockAiForToday(env, diagnostics);
     }
     return summary;

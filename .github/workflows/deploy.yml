@@ -56,17 +56,20 @@ jobs:
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
           KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
           NEWSBRIEF_COLLECT_TOKEN: ${{ secrets.NEWSBRIEF_COLLECT_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           jq -n \
             --arg naver_id "$NAVER_CLIENT_ID" \
             --arg naver_secret "$NAVER_CLIENT_SECRET" \
             --arg kakao_key "$KAKAO_REST_API_KEY" \
             --arg collect_token "$NEWSBRIEF_COLLECT_TOKEN" \
+            --arg anthropic_key "$ANTHROPIC_API_KEY" \
             '{deployment_configs:{production:{env_vars:{
               NAVER_CLIENT_ID:{type:"secret_text",value:$naver_id},
               NAVER_CLIENT_SECRET:{type:"secret_text",value:$naver_secret},
               KAKAO_REST_API_KEY:{type:"secret_text",value:$kakao_key},
-              NEWSBRIEF_COLLECT_TOKEN:{type:"secret_text",value:$collect_token}
+              NEWSBRIEF_COLLECT_TOKEN:{type:"secret_text",value:$collect_token},
+              ANTHROPIC_API_KEY:{type:"secret_text",value:$anthropic_key}
             }}}}' > /tmp/pages-settings.json
           curl --fail-with-body -sS \
             -X PATCH \
