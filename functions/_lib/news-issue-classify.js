@@ -35,7 +35,6 @@ export async function classifyIssues(env, articles) {
     body: JSON.stringify({
       model: CLASSIFY_MODEL,
       max_tokens: 8000,
-      temperature: 0,
       system: INSTRUCTIONS,
       messages: [{ role: 'user', content: listing }]
     })
